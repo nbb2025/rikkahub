@@ -26,12 +26,10 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Install Android SDK
-        run: |
-          set +o pipefail
-          yes | sdkmanager --licenses > /dev/null
-          set -o pipefail
-          sdkmanager --install "platforms;android-37.2" "build-tools;37.0.0"
+      - uses: android-actions/setup-android@v4.0.4
+        with:
+          log-accepted-android-sdk-licenses: false
+          packages: platform-tools platforms;android-37.2 build-tools;37.0.0 cmake;3.22.1 ndk;28.2.13676358
 
       - uses: pnpm/action-setup@v4
         with:
