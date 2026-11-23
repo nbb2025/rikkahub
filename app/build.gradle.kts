@@ -28,8 +28,8 @@ android {
         applicationId = "dev.iagent.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.3.1"
         buildConfigField("boolean", "ENABLE_UPDATE_CHECKS", "false")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

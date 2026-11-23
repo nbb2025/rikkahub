@@ -24,7 +24,9 @@ pnpm --dir web-ui install --frozen-lockfile
 | 充值 | 使用站点支付配置和 `/api/v1/payment` 接口。客户端显示估价，实际金额和到账状态以 iAgent 订单为准。 |
 | 扩展 | 助手、会话分支、MCP、Skills 和工作区沿用 RikkaHub 的引擎。 |
 
-模型广场中的 Token 单价为线上公布的基准价，按每百万 Token 显示。账号分组倍率单列，套餐、阶梯或模型专属价格以 iAgent 服务端计费为准。
+模型广场默认显示计入分组倍率的美元价格，可切换到基础价。登录后从 `/api/v1/groups/rates` 读取账号专属倍率，优先使用 `/api/v1/model-plaza` 的有效价格。该接口关闭或暂时不可用时，使用 `/site-api/channels` 的渠道价、分组媒体单价及官方基础价作为参考。Token 价按每百万 Token 显示，媒体按模型对应的张、秒、视频或请求计费。计费结果以实际账单为准。
+
+登录后，模型广场从 `/api/v1/usage/model-request-metrics` 加载分组和模型近 24 小时的请求成功率及逐小时状态。模型条目还显示平均延迟，文本模型显示流式输出速度。页面活跃时约每两分钟刷新。
 
 ## 分组与专用令牌
 
@@ -46,7 +48,7 @@ adb shell am instrument -w \
   dev.iagent.app.debug.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
-工作台测试会使用模拟账号和充值数据。请在单独的测试模拟器运行，它会写入测试会话和草稿。增加 `-e publicSkills true` 可以额外验证 Skills.sh 搜索及 GitHub 导入。
+工作台测试使用模拟账号、分组定价、请求监控和充值数据。请在单独的测试模拟器运行，它会写入测试会话和草稿。增加 `-e publicSkills true` 可以额外验证 Skills.sh 搜索及 GitHub 导入。
 分组生命周期测试模拟上架、下线、恢复、重复请求和创建响应丢失。
 
 ## 打包和签名

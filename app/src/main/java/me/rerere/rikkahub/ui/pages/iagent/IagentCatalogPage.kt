@@ -17,6 +17,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -35,8 +38,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ArrowDown01
 import me.rerere.hugeicons.stroke.Refresh
@@ -46,36 +57,64 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.iagent.IagentAccount
 import me.rerere.rikkahub.data.iagent.IagentCatalog
 import me.rerere.rikkahub.data.iagent.IagentCatalogModel
+import me.rerere.rikkahub.data.iagent.IagentChannelPriceKey
 import me.rerere.rikkahub.data.iagent.IagentGroup
+import me.rerere.rikkahub.data.iagent.IagentGroupPricing
+import me.rerere.rikkahub.data.iagent.IagentModelPricing
 import me.rerere.rikkahub.data.iagent.IagentModels
+import me.rerere.rikkahub.data.iagent.IagentPlazaGroup
+import me.rerere.rikkahub.data.iagent.IagentPlazaModel
+import me.rerere.rikkahub.data.iagent.IagentPriceView
+import me.rerere.rikkahub.data.iagent.IagentRequestMetrics
+import me.rerere.rikkahub.data.iagent.IagentRequestStatus
+import me.rerere.rikkahub.data.iagent.effectiveImageRate
+import me.rerere.rikkahub.data.iagent.effectiveVideoRate
+import me.rerere.rikkahub.data.iagent.forModel
+import me.rerere.rikkahub.data.iagent.indexPrices
 import me.rerere.rikkahub.data.iagent.isIagentReviewModel
+import me.rerere.rikkahub.data.iagent.match
 import me.rerere.rikkahub.data.iagent.mediaProtocol
 import me.rerere.rikkahub.data.iagent.orderGroups
 import me.rerere.rikkahub.data.iagent.orderModels
+import me.rerere.rikkahub.data.iagent.priceView
+import me.rerere.rikkahub.data.iagent.pricingModelName
+import me.rerere.rikkahub.data.iagent.pricingPlatform
+import me.rerere.rikkahub.data.iagent.standardRate
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.utils.writeClipboardText
 import org.koin.compose.koinInject
-import java.text.NumberFormat
 
 @Composable
 internal fun IagentCatalogPage(mediaOnly: Boolean = false) {
     val service: IagentModels = koinInject()
     val account: IagentAccount = koinInject()
     val owner by account.user.collectAsStateWithLifecycle()
+    val ownerId = owner?.id
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val source by service.catalog.collectAsStateWithLifecycle()
     val available by service.availableGroups.collectAsStateWithLifecycle()
+    val privateGroups = available?.takeIf { it.owner == ownerId }?.groups
     var query by rememberSaveable { mutableStateOf("") }
-    var opened by rememberSaveable { mutableStateOf<Long?>(null) }
+    var expansion by rememberSaveable { mutableStateOf(longArrayOf()) }
+    var applyRate by rememberSaveable { mutableStateOf(true) }
     var refresh by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
-    LaunchedEffect(refresh) {
+    var channels by remember { mutableStateOf(emptyMap<IagentChannelPriceKey, List<IagentModelPricing>>()) }
+    var plaza by remember(ownerId) { mutableStateOf(emptyMap<Long, IagentPlazaGroup>()) }
+    var userRates by remember(ownerId) { mutableStateOf(emptyMap<Long, Double>()) }
+    var metrics by remember(ownerId) { mutableStateOf<IagentRequestMetrics?>(null) }
+    var loadingMetrics by remember(ownerId) { mutableStateOf(ownerId != null) }
+
+    LaunchedEffect(ownerId, refresh) {
         loading = true
         error = null
         try {
-            val id = account.user.value?.id
-            if (refresh > 0 && id != null) service.synchronize(id, force = true)
-            else service.loadCatalog(force = refresh > 0)
+            if (ownerId != null && (refresh > 0 || privateGroups == null)) {
+                service.synchronize(ownerId, force = refresh > 0)
+            } else {
+                service.loadCatalog(force = refresh > 0)
+            }
         } catch (caught: CancellationException) {
             throw caught
         } catch (caught: Exception) {
@@ -84,9 +123,33 @@ internal fun IagentCatalogPage(mediaOnly: Boolean = false) {
             loading = false
         }
     }
-    val privateGroups = available?.takeIf { it.owner == owner?.id }?.groups
-    val groups = remember(source, privateGroups, query, mediaOnly) {
-        source?.sections(privateGroups, query, mediaOnly).orEmpty()
+    LaunchedEffect(refresh) {
+        channels = catalogOrNull { account.catalogChannels(force = refresh > 0).indexPrices() }.orEmpty()
+    }
+    LaunchedEffect(ownerId, refresh, lifecycle) {
+        if (ownerId == null) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (isActive) {
+                loadingMetrics = metrics == null
+                coroutineScope {
+                    launch {
+                        plaza = catalogOrNull { account.catalogPlaza(ownerId) }.orEmpty()
+                    }
+                    launch {
+                        userRates = catalogOrNull { account.catalogUserRates(ownerId) }.orEmpty()
+                    }
+                    launch {
+                        metrics = catalogOrNull(timeoutMillis = 15_000) { account.catalogMetrics(ownerId) }
+                        loadingMetrics = false
+                    }
+                }
+                delay(120_000)
+            }
+        }
+    }
+    val groups = remember(source, ownerId, privateGroups, plaza, userRates, query, mediaOnly) {
+        if (ownerId != null && privateGroups == null) emptyList()
+        else source?.sections(privateGroups, plaza, userRates, query, mediaOnly).orEmpty()
     }
     Scaffold(
         topBar = {
@@ -94,7 +157,7 @@ internal fun IagentCatalogPage(mediaOnly: Boolean = false) {
                 title = { Text(stringResource(if (mediaOnly) R.string.iagent_catalog_media else R.string.iagent_catalog_title)) },
                 navigationIcon = { BackButton() },
                 actions = {
-                    IconButton(onClick = { refresh++ }, enabled = !loading) {
+                    IconButton(onClick = { refresh++ }, enabled = !loading && !loadingMetrics) {
                         Icon(HugeIcons.Refresh, stringResource(R.string.iagent_refresh_models))
                     }
                 },
@@ -117,6 +180,33 @@ internal fun IagentCatalogPage(mediaOnly: Boolean = false) {
                     shape = RoundedCornerShape(18.dp),
                 )
             }
+            item("price-mode") {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = applyRate,
+                        onClick = { applyRate = true },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    ) {
+                        Text(stringResource(R.string.iagent_catalog_group_price))
+                    }
+                    SegmentedButton(
+                        selected = !applyRate,
+                        onClick = { applyRate = false },
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    ) {
+                        Text(stringResource(R.string.iagent_catalog_base_price))
+                    }
+                }
+            }
+            if (ownerId == null) {
+                item("guest-metrics") {
+                    Text(
+                        stringResource(R.string.iagent_catalog_metrics_sign_in),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
             if (loading) {
                 item("progress") {
                     Box(Modifier.fillMaxWidth().padding(15.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -131,15 +221,32 @@ internal fun IagentCatalogPage(mediaOnly: Boolean = false) {
                 item("empty") { Text(stringResource(R.string.iagent_catalog_empty)) }
             }
             groups.forEach { section ->
-                val expanded = if (query.isBlank()) (opened ?: groups.firstOrNull()?.id) == section.id else opened != -section.id
+                val expanded = section.id in expansion || (-section.id !in expansion &&
+                    (query.isNotBlank() || section.id == groups.firstOrNull()?.id))
                 item(key = "group-${section.id}") {
-                    CatalogGroupHeader(section, expanded) {
-                        opened = if (expanded) -section.id else section.id
+                    CatalogGroupHeader(section, expanded, ownerId != null, metrics?.group(section.id), metrics != null, loadingMetrics) {
+                        expansion = expansion.filter { it != section.id && it != -section.id }.toLongArray() +
+                            if (expanded) -section.id else section.id
                     }
                 }
                 if (expanded) {
-                    items(section.models, key = { "model-${section.id}-${it.id}" }) { model ->
-                        CatalogModelRow(model, source?.priceUnit == "USD/token")
+                    items(section.models, key = { "model-${section.id}-${it.model.platform}-${it.model.id}" }) { entry ->
+                        val model = entry.model
+                        val prices = remember(entry, section.pricing, section.platform, channels, source?.priceUnit) {
+                            model.priceView(
+                                section.platform, section.pricing, channels.forModel(section.id, model),
+                                entry.resolved, source?.priceUnit == "USD/token",
+                            )
+                        }
+                        CatalogModelRow(
+                            model = model,
+                            pricing = prices,
+                            group = section,
+                            applyRate = applyRate,
+                            signedIn = ownerId != null,
+                            metrics = metrics,
+                            loadingMetrics = loadingMetrics,
+                        )
                     }
                 }
             }
@@ -148,7 +255,15 @@ internal fun IagentCatalogPage(mediaOnly: Boolean = false) {
 }
 
 @Composable
-private fun CatalogGroupHeader(group: CatalogSection, expanded: Boolean, onClick: () -> Unit) {
+private fun CatalogGroupHeader(
+    group: CatalogSection,
+    expanded: Boolean,
+    showMetrics: Boolean,
+    status: IagentRequestStatus?,
+    metricsAvailable: Boolean,
+    loadingMetrics: Boolean,
+    onClick: () -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
     Surface(
         onClick = onClick,
@@ -156,35 +271,42 @@ private fun CatalogGroupHeader(group: CatalogSection, expanded: Boolean, onClick
         color = colors.surfaceContainerHigh,
         shape = RoundedCornerShape(18.dp),
     ) {
-        Row(
-            Modifier.padding(15.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(group.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    listOfNotNull(
-                        stringResource(R.string.iagent_catalog_count, group.models.size),
-                        rateLabel(R.string.iagent_catalog_chat_rate, group.rate)?.takeIf { group.hasChat },
-                        rateLabel(R.string.iagent_catalog_image_rate, group.imageRate)?.takeIf { group.hasImages },
-                        rateLabel(R.string.iagent_catalog_video_rate, group.videoRate)?.takeIf { group.hasVideo },
-                    ).joinToString(" · "),
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelMedium,
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(group.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        listOfNotNull(
+                            stringResource(R.string.iagent_catalog_count, group.models.size),
+                            rateLabel(R.string.iagent_catalog_chat_rate, group.pricing.standardRate)?.takeIf { group.hasChat },
+                            rateLabel(R.string.iagent_catalog_image_rate, group.pricing.effectiveImageRate)?.takeIf { group.hasImages },
+                            rateLabel(R.string.iagent_catalog_video_rate, group.pricing.effectiveVideoRate)?.takeIf { group.hasVideo },
+                        ).joinToString(" · "),
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+                Icon(
+                    HugeIcons.ArrowDown01,
+                    stringResource(if (expanded) R.string.iagent_catalog_collapse else R.string.iagent_catalog_expand),
+                    modifier = Modifier.rotate(if (expanded) 180f else 0f),
                 )
             }
-            Icon(
-                HugeIcons.ArrowDown01,
-                stringResource(if (expanded) R.string.iagent_catalog_collapse else R.string.iagent_catalog_expand),
-                modifier = Modifier.rotate(if (expanded) 180f else 0f),
-            )
+            if (showMetrics) CatalogRequestMetrics(status, metricsAvailable, loadingMetrics)
         }
     }
 }
 
 @Composable
-private fun CatalogModelRow(model: IagentCatalogModel, hasTokenPrices: Boolean) {
+private fun CatalogModelRow(
+    model: IagentCatalogModel,
+    pricing: IagentPriceView,
+    group: CatalogSection,
+    applyRate: Boolean,
+    signedIn: Boolean,
+    metrics: IagentRequestMetrics?,
+    loadingMetrics: Boolean,
+) {
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
     Surface(
@@ -193,18 +315,22 @@ private fun CatalogModelRow(model: IagentCatalogModel, hasTokenPrices: Boolean) 
         shape = RoundedCornerShape(14.dp),
         color = colors.surfaceContainerLow,
     ) {
-        Column(Modifier.padding(horizontal = 13.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(model.displayName, style = MaterialTheme.typography.bodyLarge)
-            val pricing = model.pricing?.takeIf { it.found && hasTokenPrices }
-            val input = pricing?.input?.takeIf { it.isFinite() && it >= 0 }
-            val output = pricing?.output?.takeIf { it.isFinite() && it >= 0 }
-            val hasName = model.id != model.displayName
-            if (hasName) Text(model.id, color = colors.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
-            if (input != null && output != null) {
-                Text(
-                    stringResource(R.string.iagent_catalog_token_price, number(input * 1_000_000), number(output * 1_000_000)),
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
+        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(model.displayName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                val identity = listOfNotNull(
+                    model.id.takeIf { it != model.displayName },
+                    model.platform.takeIf { it != group.platform },
+                ).joinToString(" · ")
+                if (identity.isNotEmpty()) Text(identity, color = colors.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
+            }
+            CatalogPriceDetails(pricing, group.pricing, applyRate)
+            if (signedIn) {
+                CatalogRequestMetrics(
+                    status = metrics?.model(group.id, model.id),
+                    available = metrics != null,
+                    loading = loadingMetrics,
+                    media = pricing.media,
                 )
             }
         }
@@ -213,48 +339,89 @@ private fun CatalogModelRow(model: IagentCatalogModel, hasTokenPrices: Boolean) 
 
 @Composable
 private fun rateLabel(label: Int, rate: Double?): String? =
-    rate?.takeIf { it.isFinite() && it >= 0 }?.let { stringResource(label, number(it)) }
+    rate?.let { stringResource(label, catalogNumber(it, 4)) }
 
-private fun number(value: Double) = NumberFormat.getNumberInstance().apply { maximumFractionDigits = 6 }.format(value)
+private suspend fun <T> catalogOrNull(timeoutMillis: Long = 20_000, load: suspend () -> T): T? = try {
+    withTimeoutOrNull(timeoutMillis) { load() }
+} catch (error: CancellationException) {
+    throw error
+} catch (_: Exception) {
+    null
+}
 
 private data class CatalogSection(
     val id: Long,
     val name: String,
-    val rate: Double?,
-    val imageRate: Double?,
-    val videoRate: Double?,
+    val platform: String,
+    val pricing: IagentGroupPricing,
     val hasChat: Boolean,
     val hasImages: Boolean,
     val hasVideo: Boolean,
-    val models: List<IagentCatalogModel>,
+    val models: List<CatalogEntry>,
 )
 
-private fun IagentCatalog.sections(available: List<IagentGroup>?, query: String, mediaOnly: Boolean): List<CatalogSection> {
+private data class CatalogEntry(val model: IagentCatalogModel, val resolved: IagentPlazaModel? = null)
+
+private fun IagentCatalog.sections(
+    available: List<IagentGroup>?,
+    plaza: Map<Long, IagentPlazaGroup>,
+    userRates: Map<Long, Double>,
+    query: String,
+    mediaOnly: Boolean,
+): List<CatalogSection> {
     val privateGroups = available?.associateBy { it.id }
     val publicRates = groupPricing.associateBy { it.id }
     val words = query.trim().split(Regex("\\s+")).filter(String::isNotBlank)
-    val sections = models.filterNot { isIagentReviewModel(it.id, it.name) }.groupBy { it.groupId }.mapNotNull { (id, entries) ->
-        if (id == null) return@mapNotNull null
-        val first = entries.first()
+    val published = models.filter { it.groupId != null }.groupBy { it.groupId }
+    val sections = (privateGroups?.keys ?: published.keys.filterNotNull()).mapNotNull { id ->
+        val entries = published[id].orEmpty()
+        val first = entries.firstOrNull()
         val channel = privateGroups?.get(id)
-        if (privateGroups != null && channel == null) return@mapNotNull null
-        val prices = publicRates[id]
-        val name = (channel?.name ?: first.groupName).orEmpty().ifBlank { first.platform.ifBlank { "#$id" } }
-        val platform = channel?.platform ?: first.platform
-        val visible = entries.distinctBy { it.id }.filter { model ->
-            (!mediaOnly || mediaProtocol(platform, model) != null) &&
+        val effective = plaza[id]
+        val platform = channel?.platform ?: first?.platform.orEmpty()
+        val name = (channel?.name ?: first?.groupName).orEmpty().ifBlank { platform.ifBlank { "#$id" } }
+        val visible = mergeCatalogEntries(entries, effective, id).filter { (model) ->
+            !isIagentReviewModel(model.id, model.name) && (!mediaOnly || mediaProtocol(platform, model) != null) &&
                 words.all { "${model.id} ${model.name} $name $platform".contains(it, ignoreCase = true) }
         }
         if (visible.isEmpty()) return@mapNotNull null
-        val rate = channel?.rate ?: prices?.rate ?: first.rate
-        val imageRate = if (channel?.imageRateIndependent ?: (prices?.imageRateIndependent == true)) {
-            channel?.imageRate ?: prices?.imageRate
-        } else rate
-        val videoRate = if (channel?.videoRateIndependent ?: (prices?.videoRateIndependent == true)) {
-            channel?.videoRate ?: prices?.videoRate
-        } else rate
-        val kinds = visible.map { mediaProtocol(platform, it)?.kind }.toSet()
-        CatalogSection(id, name, rate, imageRate, videoRate, null in kinds, MediaKind.IMAGE in kinds, MediaKind.VIDEO in kinds, orderModels(visible))
+        val prices = channel?.pricing?.let { it.copy(userRate = userRates[id] ?: it.userRate) }
+            ?: publicRates[id] ?: IagentGroupPricing(id, rate = first?.rate)
+        val pricing = effective?.pricing?.let {
+            it.copy(
+                imagePrice1k = it.imagePrice1k ?: prices.imagePrice1k,
+                imagePrice2k = it.imagePrice2k ?: prices.imagePrice2k,
+                imagePrice4k = it.imagePrice4k ?: prices.imagePrice4k,
+                videoPrice480p = it.videoPrice480p ?: prices.videoPrice480p,
+                videoPrice720p = it.videoPrice720p ?: prices.videoPrice720p,
+                videoPrice1080p = it.videoPrice1080p ?: prices.videoPrice1080p,
+                videoModelPrices = it.videoModelPrices ?: prices.videoModelPrices,
+            )
+        } ?: prices
+        val byModel = visible.associateBy(CatalogEntry::model)
+        val kinds = byModel.keys.map { mediaProtocol(platform, it)?.kind }.toSet()
+        CatalogSection(
+            id, name, platform, pricing, null in kinds, MediaKind.IMAGE in kinds, MediaKind.VIDEO in kinds,
+            orderModels(byModel.keys.toList()).map(byModel::getValue),
+        )
     }
     return orderGroups(sections, CatalogSection::id, CatalogSection::name)
+}
+
+private fun mergeCatalogEntries(
+    published: List<IagentCatalogModel>,
+    plaza: IagentPlazaGroup?,
+    group: Long,
+): List<CatalogEntry> {
+    val entries = published.flatMap { model ->
+        val matches = plaza.match(model)
+        if (matches.isEmpty()) listOf(CatalogEntry(model))
+        else matches.map { CatalogEntry(model.copy(platform = it.platform), it) }
+    }
+    val seen = entries.mapTo(hashSetOf()) { (model) -> pricingPlatform(model.platform) to pricingModelName(model.id) }
+    val extra = plaza?.models.orEmpty().mapNotNull { model ->
+        if (!seen.add(pricingPlatform(model.platform) to pricingModelName(model.name))) return@mapNotNull null
+        CatalogEntry(IagentCatalogModel(id = model.name, platform = model.platform, groupId = group), model)
+    }
+    return (entries + extra).distinctBy { (model) -> pricingPlatform(model.platform) to model.id }
 }

@@ -12,7 +12,7 @@ Open a successful **iAgent Android** run and download **iAgent-Android-APKs**. U
 
 - **Chat** uses the models and groups available to your iAgent account. Create assistants, manage conversations, attach files, and enable Skills or MCP tools per assistant.
 - **Studio** supports GPT Image and other image models, and video models such as Wan and Video-LT. Image and video drafts are independent. Each model shows the reference inputs and parameters it accepts.
-- **Model catalog** shows the live iAgent model list, group multipliers and published base token prices. Model pickers follow the iAgent catalog order with a natural descending fallback.
+- **Model catalog** shows group-adjusted and base prices for live iAgent models. Sign in to see 24-hour request monitoring by group and model. Model pickers follow the iAgent catalog order with a natural descending fallback.
 - **Balance** supports iAgent checkout and order status. Payments open the provider's hosted checkout or QR code. The app updates your balance when iAgent confirms that the order was credited.
 - **Agent Skills** can browse [Skills.sh](https://skills.sh/) and import from GitHub, a ZIP package, or a `SKILL.md` file.
 

@@ -4,13 +4,16 @@ import android.graphics.Bitmap
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -90,6 +93,7 @@ class IagentWorkbenchTest {
                 compose.onNodeWithText("Model catalog").performClick()
                 visible("Wan · Bailian")
                 visible("Video 1.3×", substring = true)
+                visible("Sign in to view request monitoring by group and model.")
                 compose.onAllNodesWithText("Codex Auto Review").assertCountEquals(0)
                 capture("catalog")
                 compose.onNodeWithContentDescription("Back").performClick()
@@ -110,6 +114,7 @@ class IagentWorkbenchTest {
                 visible("Credited")
                 compose.onNodeWithContentDescription("Back").performClick()
                 visible("iAgent account")
+                verifyModelCatalog()
                 compose.onNodeWithText("Chat").performClick()
                 visible("What’s on your mind?")
                 visible("GPT-6.1 Sol")
@@ -153,6 +158,29 @@ class IagentWorkbenchTest {
                 repo.deleteSession(session.id)
             }
         }
+    }
+
+    private fun verifyModelCatalog() {
+        compose.onNodeWithText("Model catalog").performClick()
+        visible("Search models or groups")
+        compose.onNode(hasSetTextAction()).performTextReplacement("gpt-6.1-sol")
+        visible("\$5 / 1M tokens")
+        visible("Standard-period price · 0.5× applied")
+        visible("80% success")
+        visible("750 ms")
+        visible("42.5 tokens/s")
+        capture("catalog-monitoring")
+
+        val list = compose.onNode(hasScrollToNodeAction())
+        list.performScrollToNode(hasText("50% success"))
+        compose.onNodeWithText("50% success").assertIsDisplayed()
+        list.performScrollToNode(hasText("\$15 / 1M tokens"))
+        compose.onNodeWithText("\$15 / 1M tokens").assertIsDisplayed()
+        compose.onNodeWithText("No requests recorded").assertIsDisplayed()
+        list.performScrollToNode(hasText("Base price"))
+        compose.onNodeWithText("Base price").performClick()
+        visible("\$10 / 1M tokens")
+        compose.onNodeWithContentDescription("Back").performClick()
     }
 
     private fun verifyPublicSkillImport(skillManager: SkillManager) {
@@ -209,16 +237,34 @@ class IagentWorkbenchTest {
             "/api/v1/auth/logout" -> """{"code":0,"data":{}}"""
             "/api/v1/auth/me" -> """{"code":0,"data":{"id":8021,"email":"preview@iagent.example","balance":24.1}}"""
             "/api/v1/groups/available" -> """
-                {"code":0,"data":[{"id":4,"name":"OpenAI Workspace","platform":"openai","status":"active"},
+                {"code":0,"data":[{"id":4,"name":"OpenAI Workspace","platform":"openai","status":"active","rate_multiplier":0.5},
+                    {"id":7,"name":"OpenAI Alternate","platform":"openai","status":"active","rate_multiplier":1.1},
                 {"id":42,"name":"Wan · Bailian","platform":"bailian","status":"active"}]}
             """.trimIndent()
+                "/api/v1/groups/rates" -> """{"code":0,"data":{"7":1.5}}"""
             "/site-api/models" -> """
-                {"group_order":[42,4],"group_pricing":[{"id":42,"rate_multiplier":1.3}],"models":[
-                {"id":"gpt-6.1-sol","name":"GPT-6.1 Sol","platform":"openai","group_id":4,"group_name":"OpenAI Workspace"},
+                {"group_order":[42,4,7],"group_pricing":[{"id":42,"rate_multiplier":1.3}],"price_unit":"USD/token","models":[
+                {"id":"gpt-6.1-sol","name":"GPT-6.1 Sol","platform":"openai","group_id":4,"group_name":"OpenAI Workspace","default_pricing":{"found":true,"input_price":0.00001,"output_price":0.00004}},
+                {"id":"gpt-6.1-sol","name":"GPT-6.1 Sol","platform":"openai","group_id":7,"group_name":"OpenAI Alternate","default_pricing":{"found":true,"input_price":0.00001,"output_price":0.00004}},
                 {"id":"gpt-image-2","name":"GPT Image 2","platform":"openai","group_id":4,"group_name":"OpenAI Workspace"},
                 {"id":"codex-auto-review","name":"Codex Auto Review","platform":"openai","group_id":4,"group_name":"OpenAI Workspace"},
                 {"id":"wan3.0-video","name":"Wan 3.0","platform":"bailian","group_id":42,"group_name":"Wan · Bailian"}]}
             """.trimIndent()
+            "/site-api/channels" -> "[]"
+            "/api/v1/model-plaza" -> """
+                {"code":0,"data":{"groups":[{"id":4,"rate_multiplier":0.8,"user_rate_multiplier":0.5,"models":[
+                {"name":"gpt-6.1-sol","platform":"openai","pricing":{"billing_mode":"token","input_price":0.00001,"output_price":0.00004}}]}]}}
+            """.trimIndent()
+            "/api/v1/usage/model-request-metrics" -> {
+                check(request.header("Authorization") == "Bearer fixture")
+                """
+                {"code":0,"data":{"window_start":"2026-11-22T18:00:00Z","window_end":"2026-11-23T18:00:00Z","bucket_seconds":3600,
+                "groups":[{"group_id":4,"success_rate":0.9,"buckets":[{"index":22,"state":"success"}]},
+                {"group_id":7,"success_rate":0.5,"buckets":[{"index":22,"state":"failure"},{"index":23,"state":"success"}]}],
+                "items":[{"group_id":4,"model":"GPT-6.1-SOL","success_rate":0.8,"avg_latency_ms":750,
+                "stream_output_tokens_per_second":42.5,"buckets":[{"index":23,"state":"mixed"}]}]}}
+                """.trimIndent()
+            }
             "/site-api/config" -> """{"billing":{"amounts":[50,100],"methods":[{"id":"alipay","label":"Alipay","enabled":true}]}}"""
             "/api/v1/payment/config" -> """{"code":0,"data":{"min_amount":1,"max_amount":1000,"enabled":true}}"""
             "/api/v1/payment/checkout-info" -> """{"code":0,"data":{"methods":{"alipay":{"currency":"CNY","single_min":1,"single_max":1000}}}}"""

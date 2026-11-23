@@ -207,8 +207,30 @@ class IagentAccount internal constructor(
         Unit
     }
 
-    internal suspend fun catalog(): IagentCatalog =
-        decode(request("/site-api/models?include_group_pricing=1", envelope = false))
+    internal suspend fun catalog(force: Boolean = false): IagentCatalog =
+        decode(request("/site-api/models?include_group_pricing=1" + if (force) "&refresh=1" else "", envelope = false))
+
+    internal suspend fun catalogChannels(force: Boolean): List<IagentPublicChannel> =
+        decode(request(if (force) "/site-api/channels?refresh=1" else "/site-api/channels", envelope = false))
+
+    internal suspend fun catalogPlaza(owner: Long): Map<Long, IagentPlazaGroup> {
+        val result = try {
+            decode<IagentPlazaPayload>(authenticated(owner, "/api/v1/model-plaza"))
+        } catch (error: IagentException) {
+            if (error.status == 404) return emptyMap()
+            throw error
+        }
+        return result.groups.associate { group ->
+            val pricing = decode<IagentGroupPricing>(group)
+            pricing.id to IagentPlazaGroup(pricing, decode<IagentPlazaModels>(group).models)
+        }
+    }
+
+    internal suspend fun catalogMetrics(owner: Long): IagentRequestMetrics =
+        decode(authenticated(owner, "/api/v1/usage/model-request-metrics"))
+
+    internal suspend fun catalogUserRates(owner: Long): Map<Long, Double> =
+        decode<Map<Long, Double>?>(authenticated(owner, "/api/v1/groups/rates")).orEmpty()
 
     internal suspend fun siteBilling(): IagentSiteBilling =
         decode<IagentSiteConfig>(request("/site-api/config", envelope = false)).billing
@@ -220,7 +242,9 @@ class IagentAccount internal constructor(
             android.os.SystemClock.elapsedRealtime() - cached.fetchedAt <= maxAgeMillis) {
             return@withLock cached.groups
         }
-        decode<List<IagentGroup>>(authenticated(owner, "/api/v1/groups/available")).also {
+        decode<List<JsonObject>>(authenticated(owner, "/api/v1/groups/available")).map { group ->
+            decode<IagentGroup>(group).copy(pricing = decode(group))
+        }.also {
             groupSnapshot = IagentGroupSnapshot(owner, it, android.os.SystemClock.elapsedRealtime())
         }
     }

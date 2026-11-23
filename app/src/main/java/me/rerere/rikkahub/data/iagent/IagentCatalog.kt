@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.iagent
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import java.util.Locale
 
 @Serializable
@@ -21,21 +22,30 @@ internal data class IagentGroup(
     val status: String,
     val description: String? = null,
     @SerialName("claude_code_only") val claudeCodeOnly: Boolean = false,
-    @SerialName("rate_multiplier") val rate: Double? = null,
-    @SerialName("image_rate_independent") val imageRateIndependent: Boolean? = null,
-    @SerialName("image_rate_multiplier") val imageRate: Double? = null,
-    @SerialName("video_rate_independent") val videoRateIndependent: Boolean? = null,
-    @SerialName("video_rate_multiplier") val videoRate: Double? = null,
+    @Transient val pricing: IagentGroupPricing = IagentGroupPricing(id),
 )
 
 @Serializable
 internal data class IagentGroupPricing(
     val id: Long,
     @SerialName("rate_multiplier") val rate: Double? = null,
+    @SerialName("user_rate_multiplier") val userRate: Double? = null,
     @SerialName("image_rate_independent") val imageRateIndependent: Boolean = false,
     @SerialName("image_rate_multiplier") val imageRate: Double? = null,
+    @SerialName("image_price_1k") val imagePrice1k: Double? = null,
+    @SerialName("image_price_2k") val imagePrice2k: Double? = null,
+    @SerialName("image_price_4k") val imagePrice4k: Double? = null,
     @SerialName("video_rate_independent") val videoRateIndependent: Boolean = false,
     @SerialName("video_rate_multiplier") val videoRate: Double? = null,
+    @SerialName("video_price_480p") val videoPrice480p: Double? = null,
+    @SerialName("video_price_720p") val videoPrice720p: Double? = null,
+    @SerialName("video_price_1080p") val videoPrice1080p: Double? = null,
+    @SerialName("video_model_prices") val videoModelPrices: Map<String, Map<String, Double>>? = null,
+    @SerialName("long_context_pricing_enabled") val longContextEnabled: Boolean? = null,
+    @SerialName("peak_rate_enabled") val peakRateEnabled: Boolean = false,
+    @SerialName("peak_start") val peakStart: String = "",
+    @SerialName("peak_end") val peakEnd: String = "",
+    @SerialName("peak_rate_multiplier") val peakRate: Double? = null,
 )
 
 @Serializable
@@ -54,14 +64,6 @@ internal data class IagentCatalogModel(
 ) {
     val displayName get() = name.ifBlank { id }
 }
-
-@Serializable
-internal data class IagentModelPricing(
-    val found: Boolean = false,
-    @SerialName("input_price") val input: Double? = null,
-    @SerialName("output_price") val output: Double? = null,
-    @SerialName("cache_read_price") val cacheRead: Double? = null,
-)
 
 @Serializable
 internal data class IagentModelSortRule(

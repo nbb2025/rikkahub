@@ -40,7 +40,7 @@ class IagentModels(
         if (cached != null && !force && System.currentTimeMillis() - catalogLoadedAt in 0..60_000L) {
             return@withLock cached
         }
-        account.catalog().also {
+        account.catalog(force).also {
             currentCatalog.value = it
             catalogLoadedAt = System.currentTimeMillis()
         }
