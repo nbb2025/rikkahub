@@ -3,9 +3,9 @@ package me.rerere.rikkahub.ui.pages.mediacreation
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -18,20 +18,17 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -45,15 +42,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -85,6 +81,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -94,26 +94,33 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
-import me.rerere.hugeicons.stroke.ArrowUp02
+import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Eraser
 import me.rerere.hugeicons.stroke.Image02
+import me.rerere.hugeicons.stroke.MusicNote03
 import me.rerere.hugeicons.stroke.PaintBoard
 import me.rerere.hugeicons.stroke.PencilEdit01
 import me.rerere.hugeicons.stroke.SlidersHorizontal
+import me.rerere.hugeicons.stroke.Sparkles
 import me.rerere.hugeicons.stroke.Tick02
 import me.rerere.hugeicons.stroke.Video01
 import me.rerere.mediagen.model.ImageRole
 import me.rerere.mediagen.model.MediaGenerationModel
 import me.rerere.mediagen.model.MediaKind
 import me.rerere.mediagen.provider.MediaGenerationCapabilities
+import me.rerere.mediagen.provider.IagentMediaProtocol
 import me.rerere.mediagen.provider.MediaGenerationParameter
 import me.rerere.mediagen.provider.MediaGenerationProviderSetting
 import me.rerere.mediagen.provider.capabilities
+import me.rerere.mediagen.provider.iagentGptImageAnimatedFormats
+import me.rerere.mediagen.provider.iagentGptImageGeneration
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.MediaCreationAsset
+import me.rerere.rikkahub.data.model.IagentImageOptions
 import me.rerere.rikkahub.data.model.MediaCreationAssetType
 import me.rerere.rikkahub.data.model.MediaCreationDraft
 import me.rerere.rikkahub.data.model.MediaCreationOutput
@@ -123,7 +130,6 @@ import me.rerere.rikkahub.data.model.mixesFramesWithReferences
 import me.rerere.rikkahub.data.model.withRequired
 import me.rerere.rikkahub.ui.components.ai.PickerHeader
 import me.rerere.ui.components.FormItem
-import me.rerere.ui.components.Tooltip
 import me.rerere.ui.sketch.SketchDialog
 import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
 import me.rerere.rikkahub.ui.components.ui.Tag
@@ -132,10 +138,10 @@ import me.rerere.rikkahub.ui.pages.setting.components.typeName
 import java.io.File
 import kotlin.uuid.Uuid
 
-private const val MAX_PICKED_IMAGES = 8
+private const val MAX_PICKED_IMAGES = 30
 
 /**
- * 页面底部的输入区：素材、提示词，以及模型和参数的选择。
+ * 创作表单。模型、提示词、素材和参数按填写顺序呈现。
  */
 @Composable
 internal fun MediaCreationComposer(
@@ -170,136 +176,201 @@ internal fun MediaCreationComposer(
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         vm.importAssets(listOfNotNull(uri), MediaCreationAssetType.VIDEO, ImageRole.REFERENCE)
     }
+    val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        vm.importAssets(uris, MediaCreationAssetType.AUDIO, ImageRole.REFERENCE)
+    }
 
+    val kind = draft.kind ?: selection?.model?.kind ?: MediaKind.IMAGE
     val capabilities = selection?.capabilities
+    val submitting by vm.submitting.collectAsStateWithLifecycle()
     val hasContent = vm.promptState.text.isNotEmpty() || draft.assets.isNotEmpty()
-    val canSubmit = capabilities != null &&
+    val hasReference = draft.assets.any { it.type == MediaCreationAssetType.IMAGE && it.role == ImageRole.REFERENCE }
+    val protocol = (selection?.provider as? MediaGenerationProviderSetting.Iagent)?.protocol
+    val refsRequired = protocol == IagentMediaProtocol.GROK_EDIT || protocol == IagentMediaProtocol.VIDEO_LT_H3
+    val needsFirstFrame = draft.assets.any { it.role == ImageRole.LAST_FRAME } &&
+        draft.assets.none { it.role == ImageRole.FIRST_FRAME }
+    val canSubmit = capabilities != null && !submitting && !needsFirstFrame && (!refsRequired || hasReference) &&
         draft.copy(prompt = vm.promptState.text.toString()).canSubmit(capabilities)
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
+    val colors = MaterialTheme.colorScheme
+    val type = MaterialTheme.typography
 
-    // 分槽位（首帧、尾帧）的模型一直显示素材行，槽位本身就是提示；只有参考素材的模型没放素材时把这一行
-    // 收起来，从输入框左边的加号添加
-    val hasFrameSlots = capabilities != null && capabilities.frameRoles.isNotEmpty()
-    val showAssets = capabilities != null && capabilities.acceptsAssets &&
-        (hasFrameSlots || draft.assets.isNotEmpty())
-    val showAddButton = capabilities != null && capabilities.acceptsAssets && !hasFrameSlots
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        StudioChoice(
+            label = stringResource(R.string.iagent_studio_model),
+            value = selection?.model?.name ?: stringResource(R.string.iagent_studio_models_empty),
+            detail = selection?.provider?.name,
+            icon = { AutoAIIcon(name = selection?.model?.modelId.orEmpty(), modifier = Modifier.size(23.dp)) },
+            onClick = { showModels = true },
+        )
 
-    // 和聊天页的输入框一样，是一个悬浮在页面底部的圆角容器
-    Surface(
-        modifier = modifier
-            .windowInsetsPadding(
-                WindowInsets.ime.union(WindowInsets.navigationBars).only(WindowInsetsSides.Bottom)
-            )
-            .padding(horizontal = 8.dp)
-            .padding(bottom = 8.dp)
-            .fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = MaterialTheme.shapes.largeIncreased,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+        Surface(
+            shape = RoundedCornerShape(23.dp),
+            color = colors.surface,
+            border = BorderStroke(1.dp, colors.outlineVariant),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            if (draft.editingNodeId != null) {
-                EditingBar(
-                    onStop = vm::stopEditing,
-                    modifier = Modifier.padding(start = 8.dp, end = 4.dp, top = 6.dp),
-                )
-            }
-            AnimatedVisibility(visible = showAssets) {
-                if (capabilities != null) {
-                    AssetRow(
-                        assets = draft.assets,
-                        capabilities = capabilities,
-                        resolve = vm::resolve,
-                        onPick = { pickingRole = it },
-                        onRemove = vm::removeAsset,
-                        onSetRole = vm::setAssetRole,
-                        onDraw = { sketching = SketchRequest(role = it.role, asset = it) },
-                        modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp),
-                    )
-                }
-            }
-            if (capabilities != null && capabilities.acceptsAssets) {
-                if (draft.assets.mixesFramesWithReferences(capabilities)) {
-                    Text(
-                        text = stringResource(R.string.media_creation_page_frames_with_references),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 4.dp),
-                    )
-                }
-                if (capabilities.requiresRemoteInputs && draft.assets.isNotEmpty() && !uploadConfigured) {
-                    Text(
-                        text = stringResource(R.string.media_creation_page_upload_not_configured_hint),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier
-                            .padding(start = 8.dp, end = 8.dp, top = 4.dp)
-                            .clickable(onClick = onOpenMediaSettings),
-                    )
-                }
-            }
-
-            TextField(
-                state = vm.promptState,
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text(stringResource(R.string.media_creation_page_prompt_placeholder)) },
-                lineLimits = TextFieldLineLimits.MultiLine(minHeightInLines = 1, maxHeightInLines = 5),
-                shape = MaterialTheme.shapes.largeIncreased,
-                textStyle = MaterialTheme.typography.bodyMedium,
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                ),
-                leadingIcon = if (showAddButton) {
-                    {
-                        IconButton(onClick = { pickingRole = ImageRole.REFERENCE }) {
-                            Icon(
-                                imageVector = HugeIcons.Add01,
-                                contentDescription = stringResource(
-                                    R.string.media_creation_page_add_reference_asset
-                                ),
-                            )
-                        }
-                    }
-                } else null,
-            )
-
-            Row(
-                modifier = Modifier.padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Column {
                 Row(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 6.dp, top = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ModelButton(model = selection?.model, onClick = { showModels = true })
-                    if (selection != null && capabilities != null && capabilities.parameters.isNotEmpty()) {
-                        val summary = draft.params
-                            .withRequired(capabilities, selection.provider.presets(selection.model.kind).defaults)
-                            .summary(selection.model.kind)
-                        ComposerChip(
-                            icon = HugeIcons.SlidersHorizontal,
-                            text = summary.take(3).joinToString(" · ")
-                                .ifEmpty { stringResource(R.string.media_creation_page_params) },
-                            onClick = { showParams = true },
-                            modifier = Modifier.weight(1f, fill = false),
+                    Text(
+                        stringResource(R.string.iagent_studio_prompt),
+                        style = type.titleSmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (hasContent) {
+                        IconButton(onClick = vm::clearDraft) {
+                            Icon(HugeIcons.Eraser, stringResource(R.string.media_creation_page_clear_input), Modifier.size(18.dp))
+                        }
+                    } else {
+                        Spacer(Modifier.height(36.dp))
+                    }
+                }
+                if (draft.editingNodeId != null) {
+                    EditingBar(onStop = vm::stopEditing, modifier = Modifier.padding(horizontal = 16.dp))
+                }
+                TextField(
+                    state = vm.promptState,
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = {
+                        Text(
+                            stringResource(if (kind == MediaKind.VIDEO) R.string.iagent_studio_video_prompt else R.string.iagent_studio_image_prompt),
+                            style = type.bodyMedium,
+                        )
+                    },
+                    lineLimits = TextFieldLineLimits.MultiLine(minHeightInLines = 3, maxHeightInLines = 7),
+                    textStyle = type.bodyLarge,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
+                )
+            }
+        }
+
+        if (capabilities?.acceptsAssets == true) {
+            Surface(
+                color = colors.surfaceContainerLow,
+                shape = RoundedCornerShape(19.dp),
+                border = BorderStroke(1.dp, colors.outlineVariant),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f).padding(start = 3.dp)) {
+                            Text(stringResource(R.string.iagent_studio_refs), style = type.titleSmall)
+                            Text(
+                                stringResource(if (refsRequired) R.string.iagent_studio_required else R.string.iagent_studio_optional),
+                                style = type.bodySmall,
+                                color = colors.onSurfaceVariant,
+                            )
+                        }
+                        if (capabilities.frameRoles.isEmpty()) {
+                            IconButton(onClick = { pickingRole = ImageRole.REFERENCE }) {
+                                Icon(HugeIcons.Add01, stringResource(R.string.media_creation_page_add_reference_asset), tint = colors.primary)
+                            }
+                        }
+                    }
+                    if (draft.assets.isNotEmpty() || capabilities.frameRoles.isNotEmpty()) {
+                        AssetRow(
+                            assets = draft.assets,
+                            capabilities = capabilities,
+                            resolve = vm::resolve,
+                            onPick = { pickingRole = it },
+                            onRemove = vm::removeAsset,
+                            onSetRole = vm::setAssetRole,
+                            onDraw = { sketching = SketchRequest(it.role, it) },
+                        )
+                    }
+                    val warning = when {
+                        needsFirstFrame -> R.string.iagent_studio_first_frame_required
+                        draft.assets.mixesFramesWithReferences(capabilities) -> R.string.media_creation_page_frames_with_references
+                        else -> null
+                    }
+                    warning?.let {
+                        Text(stringResource(it), style = type.bodySmall, color = colors.error)
+                    }
+                    if (capabilities.requiresRemoteInputs && draft.assets.isNotEmpty() &&
+                        selection?.provider !is MediaGenerationProviderSetting.Iagent && !uploadConfigured
+                    ) {
+                        Text(
+                            stringResource(R.string.media_creation_page_upload_not_configured_hint),
+                            modifier = Modifier.clickable(onClick = onOpenMediaSettings),
+                            style = type.bodySmall,
+                            color = colors.error,
                         )
                     }
                 }
-                if (hasContent) {
-                    IconButton(onClick = vm::clearDraft) {
-                        Icon(
-                            imageVector = HugeIcons.Eraser,
-                            contentDescription = stringResource(R.string.media_creation_page_clear_input),
-                        )
+            }
+        }
+
+        if (selection != null && capabilities != null && capabilities.parameters.isNotEmpty()) {
+            val summary = draft.params.withRequired(capabilities, selection.provider.presets(kind).defaults).summary(kind)
+            StudioChoice(
+                label = stringResource(R.string.media_creation_page_params),
+                value = summary.take(4).joinToString(" · ").ifEmpty {
+                    stringResource(if (kind == MediaKind.VIDEO) R.string.iagent_studio_video_default else R.string.iagent_studio_image_default)
+                },
+                icon = { Icon(HugeIcons.SlidersHorizontal, null, Modifier.size(20.dp), tint = colors.primary) },
+                onClick = { showParams = true },
+            )
+        }
+
+        Button(
+            onClick = {
+                focus.clearFocus()
+                keyboard?.hide()
+                vm.generate()
+            },
+            enabled = canSubmit,
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
+        ) {
+            if (submitting) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(HugeIcons.Sparkles, null, Modifier.size(19.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                stringResource(if (kind == MediaKind.VIDEO) R.string.iagent_studio_generate_video else R.string.iagent_studio_generate_image),
+                style = type.titleSmall,
+            )
+        }
+
+        if (!hasContent && selection != null) {
+            val example = stringResource(
+                if (kind == MediaKind.VIDEO) R.string.iagent_studio_example_video else R.string.iagent_studio_example_image
+            )
+            Surface(
+                onClick = { vm.useExamplePrompt(example) },
+                color = colors.surfaceContainerLow,
+                shape = RoundedCornerShape(17.dp),
+                border = BorderStroke(1.dp, colors.outlineVariant),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    Modifier.padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(11.dp),
+                ) {
+                    Image(
+                        painterResource(R.drawable.iagent_studio_example),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(width = 68.dp, height = 45.dp).clip(RoundedCornerShape(10.dp)),
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.iagent_studio_first_image), style = type.labelLarge)
+                        Text(example, style = type.bodySmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
+                    Icon(HugeIcons.ArrowRight01, null, Modifier.padding(end = 5.dp).size(17.dp), tint = colors.primary)
                 }
-                GenerateButton(enabled = canSubmit, onClick = vm::generate)
             }
         }
     }
@@ -307,6 +378,7 @@ internal fun MediaCreationComposer(
     if (showModels) {
         ModelSheet(
             providers = providers,
+            kind = kind,
             selectedModelId = draft.modelId,
             onSelect = { provider, model ->
                 vm.selectModel(provider, model)
@@ -336,6 +408,7 @@ internal fun MediaCreationComposer(
         AssetPickerSheet(
             role = role,
             acceptsVideo = acceptsVideo,
+            acceptsAudio = capabilities.audioInput && role == ImageRole.REFERENCE,
             recentOutputs = recentOutputs.filter { acceptsVideo || !it.output.isVideo },
             resolve = vm::resolve,
             onPickImages = {
@@ -348,6 +421,10 @@ internal fun MediaCreationComposer(
             onPickVideo = {
                 pickingRole = null
                 videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+            },
+            onPickAudio = {
+                pickingRole = null
+                audioPicker.launch(arrayOf("audio/*"))
             },
             onSketch = {
                 pickingRole = null
@@ -423,7 +500,7 @@ private fun EditingBar(onStop: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 private val MediaGenerationCapabilities.acceptsAssets: Boolean
-    get() = imageRoles.isNotEmpty() || videoInput
+    get() = imageRoles.isNotEmpty() || videoInput || audioInput
 
 /** 模型区分的槽位：首帧、尾帧各放一张图。 */
 private val MediaGenerationCapabilities.frameRoles: List<ImageRole>
@@ -432,73 +509,40 @@ private val MediaGenerationCapabilities.frameRoles: List<ImageRole>
 private val MediaGenerationModel.name: String
     get() = displayName.ifBlank { modelId }
 
-/**
- * 和聊天输入框一样只显示模型的图标，长按显示名称。
- */
 @Composable
-private fun ModelButton(model: MediaGenerationModel?, onClick: () -> Unit) {
-    val selectModel = stringResource(R.string.media_creation_page_select_model)
-    Tooltip(tooltip = { Text(model?.name ?: selectModel) }) {
-        IconButton(onClick = onClick) {
-            if (model != null) {
-                AutoAIIcon(
-                    name = model.modelId,
-                    modifier = Modifier.size(36.dp),
-                    color = Color.Transparent,
-                )
-            } else {
-                Icon(
-                    imageVector = HugeIcons.Image02,
-                    contentDescription = selectModel,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ComposerChip(
-    icon: ImageVector,
-    text: String,
+private fun StudioChoice(
+    label: String,
+    value: String,
+    detail: String? = null,
+    icon: @Composable () -> Unit,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    FilledTonalButton(
+    val colors = MaterialTheme.colorScheme
+    val type = MaterialTheme.typography
+    Surface(
         onClick = onClick,
-        // 按下时圆角收紧
-        shapes = ButtonDefaults.shapes(),
-        modifier = modifier,
-        contentPadding = ButtonDefaults.contentPaddingFor(ButtonDefaults.MinHeight, hasStartIcon = true),
+        shape = RoundedCornerShape(19.dp),
+        border = BorderStroke(1.dp, colors.outlineVariant),
+        color = colors.surface,
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-        Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-        Text(
-            text = text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            // 文字放不下时省略，图标保持完整
-            modifier = Modifier.weight(1f, fill = false),
-        )
-    }
-}
-
-@Composable
-private fun GenerateButton(enabled: Boolean, onClick: () -> Unit) {
-    // 页面上最主要的操作：比旁边的按钮宽一截，按下时圆角收紧
-    FilledIconButton(
-        onClick = onClick,
-        shapes = IconButtonDefaults.shapes(),
-        modifier = Modifier.size(
-            IconButtonDefaults.smallContainerSize(IconButtonDefaults.IconButtonWidthOption.Wide)
-        ),
-        enabled = enabled,
-    ) {
-        Icon(
-            imageVector = HugeIcons.ArrowUp02,
-            contentDescription = stringResource(R.string.media_creation_page_generate),
-            modifier = Modifier.size(IconButtonDefaults.smallIconSize),
-        )
+        Row(
+            modifier = Modifier.heightIn(min = 64.dp).padding(horizontal = 13.dp, vertical = 9.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(shape = RoundedCornerShape(12.dp), color = colors.primaryContainer, modifier = Modifier.size(38.dp)) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { icon() }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(label, style = type.labelMedium, color = colors.onSurfaceVariant)
+                Text(value, style = type.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (!detail.isNullOrBlank()) {
+                    Text(detail, style = type.bodySmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            Icon(HugeIcons.ArrowRight01, null, Modifier.size(17.dp), tint = colors.onSurfaceVariant)
+        }
     }
 }
 
@@ -524,16 +568,19 @@ private fun AssetRow(
 
     @Composable
     fun Tile(asset: MediaCreationAsset) {
-        val isVideo = asset.type == MediaCreationAssetType.VIDEO
+        val isImage = asset.type == MediaCreationAssetType.IMAGE
         AssetTile(
             file = resolve(asset.path),
-            isVideo = isVideo,
-            label = if (isVideo) stringResource(R.string.video) else asset.role.label.takeIf { showLabels },
-            // 图片可以在各个槽位之间挪动
-            roleOptions = if (isVideo) emptyList() else capabilities.imageRoles.filter { it != asset.role },
+            isVideo = asset.type == MediaCreationAssetType.VIDEO,
+            isAudio = asset.type == MediaCreationAssetType.AUDIO,
+            label = when (asset.type) {
+                MediaCreationAssetType.VIDEO -> stringResource(R.string.video)
+                MediaCreationAssetType.AUDIO -> stringResource(R.string.audio)
+                MediaCreationAssetType.IMAGE -> asset.role.label.takeIf { showLabels }
+            },
+            roleOptions = if (isImage) capabilities.imageRoles.filter { it != asset.role } else emptyList(),
             onSetRole = { onSetRole(asset, it) },
-            // 只有图片能垫在画板下面
-            onDraw = if (isVideo) null else ({ onDraw(asset) }),
+            onDraw = if (isImage) ({ onDraw(asset) }) else null,
             onRemove = { onRemove(asset) },
         )
     }
@@ -547,9 +594,9 @@ private fun AssetRow(
             if (asset != null) Tile(asset) else EmptyAssetTile(label = role.label, onClick = { onPick(role) })
         }
         assets
-            .filter { it.type == MediaCreationAssetType.VIDEO || it.role == ImageRole.REFERENCE }
+            .filter { it.type != MediaCreationAssetType.IMAGE || it.role == ImageRole.REFERENCE }
             .forEach { Tile(it) }
-        if (showLabels && (ImageRole.REFERENCE in capabilities.imageRoles || capabilities.videoInput)) {
+        if (showLabels && (ImageRole.REFERENCE in capabilities.imageRoles || capabilities.videoInput || capabilities.audioInput)) {
             EmptyAssetTile(label = ImageRole.REFERENCE.label, onClick = { onPick(ImageRole.REFERENCE) })
         }
     }
@@ -562,6 +609,7 @@ private val AssetTileShape = RoundedCornerShape(12.dp)
 private fun AssetTile(
     file: File,
     isVideo: Boolean,
+    isAudio: Boolean,
     label: String?,
     roleOptions: List<ImageRole>,
     onSetRole: (ImageRole) -> Unit,
@@ -570,15 +618,22 @@ private fun AssetTile(
 ) {
     var showMenu by remember { mutableStateOf(false) }
     Box(modifier = Modifier.size(AssetTileSize)) {
-        MediaThumbnail(
-            file = file,
-            isVideo = isVideo,
-            playIconSize = 10.dp,
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(AssetTileShape)
-                .clickable(enabled = roleOptions.isNotEmpty() || onDraw != null) { showMenu = true },
-        )
+        if (isAudio) {
+            Box(Modifier.fillMaxSize().clip(AssetTileShape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                contentAlignment = Alignment.Center) {
+                Icon(HugeIcons.MusicNote03, contentDescription = null)
+            }
+        } else {
+            MediaThumbnail(
+                file = file,
+                isVideo = isVideo,
+                playIconSize = 10.dp,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(AssetTileShape)
+                    .clickable(enabled = roleOptions.isNotEmpty() || onDraw != null) { showMenu = true },
+            )
+        }
         if (label != null) {
             Text(
                 text = label,
@@ -670,10 +725,12 @@ private fun EmptyAssetTile(label: String, onClick: () -> Unit) {
 private fun AssetPickerSheet(
     role: ImageRole,
     acceptsVideo: Boolean,
+    acceptsAudio: Boolean,
     recentOutputs: List<MediaCreationRecentOutput>,
     resolve: (String) -> File,
     onPickImages: () -> Unit,
     onPickVideo: () -> Unit,
+    onPickAudio: () -> Unit,
     onSketch: () -> Unit,
     onSelect: (MediaCreationOutput) -> Unit,
     onDismiss: () -> Unit,
@@ -706,6 +763,13 @@ private fun AssetPickerSheet(
                     Icon(HugeIcons.Video01, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.size(8.dp))
                     Text(stringResource(R.string.media_creation_page_gallery_video))
+                }
+            }
+            if (acceptsAudio) {
+                OutlinedButton(onClick = onPickAudio, modifier = Modifier.weight(1f)) {
+                    Icon(HugeIcons.MusicNote03, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text(stringResource(R.string.iagent_add_audio))
                 }
             }
             OutlinedButton(onClick = onSketch, modifier = Modifier.weight(1f)) {
@@ -755,20 +819,37 @@ private fun AssetPickerSheet(
 @Composable
 private fun ModelSheet(
     providers: List<MediaGenerationProviderSetting>,
+    kind: MediaKind,
     selectedModelId: Uuid?,
     onSelect: (MediaGenerationProviderSetting, MediaGenerationModel) -> Unit,
     onManage: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    // 适配器没有实现的类型不列出来
-    val groups = providers
-        .map { provider -> provider to provider.models.filter { provider.capabilities(it.kind) != null } }
-        .filter { it.second.isNotEmpty() }
+    var query by rememberSaveable { mutableStateOf("") }
+    val groups = remember(providers, kind, query) {
+        val terms = query.trim().split(Regex("\\s+")).filter(String::isNotEmpty)
+        providers.map { provider ->
+            provider to provider.models.filter { model ->
+                model.kind == kind && provider.capabilities(kind) != null && terms.all {
+                    model.name.contains(it, ignoreCase = true) || model.modelId.contains(it, ignoreCase = true) ||
+                        provider.name.contains(it, ignoreCase = true)
+                }
+            }
+        }.filter { it.second.isNotEmpty() }
+    }
 
     ComposerSheet(onDismiss = onDismiss) {
         Text(
             text = stringResource(R.string.media_creation_page_select_model),
             style = MaterialTheme.typography.titleMedium,
+        )
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            label = { Text(stringResource(R.string.iagent_studio_search)) },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth(),
         )
 
         if (groups.isEmpty()) {
@@ -892,7 +973,7 @@ private fun ParamsSheet(
             // 这里不放形状，参数多的时候要把高度留给下面的列表
             TextButton(
                 onClick = { update(MediaCreationParams()) },
-                enabled = changed.isNotEmpty(),
+                enabled = current != MediaCreationParams(),
             ) {
                 Text(stringResource(R.string.media_creation_page_params_reset))
             }
@@ -952,6 +1033,13 @@ private fun ParamsSheet(
                     onValueChange = { update(current.copy(count = it?.toInt())) },
                 )
             }
+            if (selection.capabilities.iagentImageOptions && iagentGptImageGeneration(selection.model.modelId)) {
+                IagentImageParameters(
+                    options = current.iagentImage ?: IagentImageOptions(),
+                    hasAnimatedFormats = iagentGptImageAnimatedFormats(selection.model.modelId),
+                    onChange = { update(current.copy(iagentImage = it)) },
+                )
+            }
             if (MediaGenerationParameter.GENERATE_AUDIO in supported) {
                 ToggleParam(
                     label = stringResource(R.string.media_creation_page_param_audio),
@@ -984,6 +1072,45 @@ private fun ParamsSheet(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun IagentImageParameters(
+    options: IagentImageOptions,
+    hasAnimatedFormats: Boolean,
+    onChange: (IagentImageOptions) -> Unit,
+) {
+    val formats = listOf("png", "jpeg", "webp") + if (hasAnimatedFormats) listOf("gif", "svg") else emptyList()
+    FormItem(label = { Text(stringResource(R.string.iagent_image_quality)) }) {
+        PresetChips(options.quality, listOf("low", "medium", "high"), null, { onChange(options.copy(quality = it)) })
+    }
+    FormItem(label = { Text(stringResource(R.string.iagent_image_format)) }) {
+        PresetChips(
+            options.format.takeIf { it in formats }, formats, "png",
+            { onChange(options.copy(format = it)) }, { it.uppercase() },
+        )
+    }
+    if (hasAnimatedFormats) {
+        FormItem(label = { Text(stringResource(R.string.iagent_image_complexity)) }) {
+            PresetChips(options.complexity, listOf("low", "medium", "high"), null, { onChange(options.copy(complexity = it)) })
+        }
+    }
+    if (hasAnimatedFormats && options.format == "gif") {
+        NumberParam(
+            label = stringResource(R.string.iagent_gif_frames),
+            value = options.frames?.toLong(),
+            presets = listOf(6L, 9L, 12L, 16L),
+            default = 9,
+            onValueChange = { onChange(options.copy(frames = it?.toInt())) },
+        )
+        NumberParam(
+            label = stringResource(R.string.iagent_gif_interval),
+            value = options.intervalMs?.toLong(),
+            presets = listOf(100L, 200L, 500L),
+            default = 200,
+            onValueChange = { onChange(options.copy(intervalMs = it?.toInt())) },
+        )
     }
 }
 

@@ -31,8 +31,9 @@ object MediaCreationFiles {
         var sampleSize = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / sampleSize > MAX_IMAGE_SIZE) sampleSize *= 2
         val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-        val decoded = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-            ?: error("无法读取图片")
+        val decoded =
+            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+                ?: error("无法读取图片")
         val bitmap = ImageUtils.correctImageOrientation(context, uri, decoded)
         try {
             // 带透明通道的图片保留 PNG，其余用 JPEG 控制体积
@@ -63,6 +64,46 @@ object MediaCreationFiles {
         return file
     }
 
+    fun importAudio(context: Context, uri: Uri, dir: File): File {
+        val mime = context.contentResolver.getType(uri)?.lowercase()
+        val extension = when (mime) {
+            "audio/mpeg", "audio/mp3" -> "mp3"
+            "audio/wav", "audio/x-wav", "audio/wave" -> "wav"
+            "audio/mp4", "audio/x-m4a" -> "m4a"
+            "audio/aac" -> "aac"
+            "audio/ogg", "application/ogg" -> "ogg"
+            "audio/webm" -> "webm"
+            else -> error("请选择 MP3、WAV、M4A、AAC、OGG 或 WebM 音频。")
+        }
+        dir.mkdirs()
+        val file = File(dir, "${Uuid.random()}.$extension")
+        try {
+            val input = context.contentResolver.openInputStream(uri) ?: error("无法读取音频。")
+            input.use { source ->
+                file.outputStream().use { target ->
+                    val buffer = ByteArray(8192)
+                    var total = 0
+                    while (true) {
+                        val read = source.read(buffer)
+                        if (read < 0) break
+                        total += read
+                        require(total <= 15_000_000) { "参考音频不能超过 15 MB。" }
+                        target.write(buffer, 0, read)
+                    }
+                    require(total > 0) { "音频文件为空。" }
+                }
+            }
+        } catch (error: Exception) {
+            file.delete()
+            throw error
+        }
+        return file
+    }
+
+    fun durationSeconds(file: File): Double? = file.withRetriever {
+        it.metadataInt(MediaMetadataRetriever.METADATA_KEY_DURATION)?.let { milliseconds -> milliseconds / 1000.0 }
+    }
+
     fun imageInfo(file: File): MediaInfo? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, bounds)
@@ -72,7 +113,8 @@ object MediaCreationFiles {
 
     fun videoInfo(file: File): MediaInfo? = file.withRetriever { retriever ->
         val width = retriever.metadataInt(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH) ?: return@withRetriever null
-        val height = retriever.metadataInt(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT) ?: return@withRetriever null
+        val height =
+            retriever.metadataInt(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT) ?: return@withRetriever null
         val rotated = retriever.metadataInt(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION) in listOf(90, 270)
         MediaInfo(
             width = if (rotated) height else width,

@@ -49,6 +49,7 @@ import me.rerere.hugeicons.stroke.Play
 import me.rerere.mediagen.model.ImageRole
 import me.rerere.mediagen.model.MediaKind
 import me.rerere.mediagen.provider.MediaGenerationProviderSetting
+import me.rerere.mediagen.provider.IagentMediaProtocol
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.files.MediaCreationFiles
 import me.rerere.rikkahub.data.model.MediaCreationParams
@@ -71,6 +72,7 @@ internal val MediaCreationStatus.label: String
         MediaCreationStatus.DOWNLOADING -> stringResource(R.string.media_creation_status_downloading)
         MediaCreationStatus.SUCCEEDED -> stringResource(R.string.media_creation_status_succeeded)
         MediaCreationStatus.FAILED -> stringResource(R.string.media_creation_status_failed)
+        MediaCreationStatus.SUBMISSION_UNKNOWN -> stringResource(R.string.iagent_submission_unknown)
         MediaCreationStatus.CANCELLED -> stringResource(R.string.media_creation_status_cancelled)
     }
 
@@ -120,6 +122,9 @@ internal fun MediaCreationParams.summary(kind: MediaKind): List<String> = listOf
         )
     },
     seed?.let { stringResource(R.string.media_creation_page_summary_seed, it) },
+    iagentImage?.format?.uppercase(),
+    iagentImage?.quality,
+    iagentImage?.complexity,
 )
 
 /**
@@ -143,6 +148,41 @@ internal data class MediaCreationPresets(
 }
 
 internal fun MediaGenerationProviderSetting.presets(kind: MediaKind): MediaCreationPresets = when (this) {
+    is MediaGenerationProviderSetting.Iagent -> when (protocol) {
+        IagentMediaProtocol.OPENAI_IMAGE, IagentMediaProtocol.GROK_IMAGE, IagentMediaProtocol.GROK_EDIT,
+        IagentMediaProtocol.GROK_CHAT_IMAGE -> MediaCreationPresets(
+            resolutions = listOf("1024x1024", "1536x1024", "1024x1536", "2048x2048", "3840x2160", "2160x3840"),
+            counts = IMAGE_COUNTS,
+        )
+        IagentMediaProtocol.GEMINI_IMAGE -> MediaCreationPresets(
+            resolutions = listOf("1K", "2K", "4K"),
+            aspectRatios = VIDEO_ASPECT_RATIOS + listOf("3:2", "2:3", "5:4", "4:5"),
+        )
+        IagentMediaProtocol.WAN -> MediaCreationPresets(
+            resolutions = listOf("720P", "480P", "1080P"),
+            aspectRatios = listOf("adaptive") + VIDEO_ASPECT_RATIOS,
+            durations = listOf(5, 10, 15, AUTO_DURATION),
+        )
+        IagentMediaProtocol.VIDEO_LT, IagentMediaProtocol.VIDEO_LT_FRAMES, IagentMediaProtocol.VIDEO_LT_H3 ->
+            MediaCreationPresets(
+                aspectRatios = when (protocol) {
+                    IagentMediaProtocol.VIDEO_LT_H3 -> listOf("16:9", "9:16")
+                    IagentMediaProtocol.VIDEO_LT_FRAMES -> VIDEO_ASPECT_RATIOS.filterNot { it == "21:9" }
+                    else -> VIDEO_ASPECT_RATIOS
+                },
+                durations = if (protocol == IagentMediaProtocol.VIDEO_LT_FRAMES) listOf(5, 10, 15, 20, 30) else listOf(5, 10, 15),
+            )
+        IagentMediaProtocol.SEEDANCE -> MediaCreationPresets(
+            resolutions = listOf("720p", "480p", "1080p"),
+            aspectRatios = VIDEO_ASPECT_RATIOS + "adaptive",
+            durations = listOf(5, 10, 15),
+        )
+        IagentMediaProtocol.GROK_VIDEO, IagentMediaProtocol.GROK_VIDEO_WITH_IMAGES -> MediaCreationPresets(
+            resolutions = listOf("720p", "480p"),
+            aspectRatios = VIDEO_ASPECT_RATIOS,
+            durations = listOf(15, 6, 10),
+        )
+    }
     is MediaGenerationProviderSetting.OpenAI -> MediaCreationPresets(
         resolutions = listOf("1024x1024", "1536x1024", "1024x1536"),
         counts = IMAGE_COUNTS,
@@ -209,6 +249,7 @@ internal fun MediaThumbnail(
     modifier: Modifier = Modifier,
     poster: File? = null,
     playIconSize: Dp = 20.dp,
+    contentScale: ContentScale = ContentScale.Crop,
 ) {
     Box(
         modifier = modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest),
@@ -218,7 +259,7 @@ internal fun MediaThumbnail(
             AsyncImage(
                 model = poster ?: file,
                 contentDescription = null,
-                contentScale = ContentScale.Crop,
+                contentScale = contentScale,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -254,7 +295,7 @@ internal fun MediaThumbnail(
 internal suspend fun saveMediaToGallery(context: Context, file: File, mimeType: String) = withContext(Dispatchers.IO) {
     check(file.isFile) { context.getString(R.string.media_creation_page_file_missing) }
     val isVideo = mimeType.startsWith("video/")
-    val name = "RikkaHub_${System.currentTimeMillis()}.${file.extension}"
+    val name = "iAgent_${System.currentTimeMillis()}.${file.extension}"
     val directory = if (isVideo) Environment.DIRECTORY_MOVIES else Environment.DIRECTORY_PICTURES
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val resolver = context.contentResolver

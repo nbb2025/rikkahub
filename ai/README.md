@@ -1,5 +1,7 @@
 # ai 模块
 
+The iAgent Android app uses this inherited RikkaHub module for chat providers and streaming. Its application wiring is described in [the Android guide](../docs/android.md).
+
 ## Provider 身份验证
 
 提供商按凭据的来源分成两类：

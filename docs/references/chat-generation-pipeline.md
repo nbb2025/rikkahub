@@ -1,5 +1,7 @@
 # 消息生成链路文档
 
+iAgent Android uses this chat pipeline with account-managed models. See [the Android guide](../android.md) for authentication and model selection.
+
 本文档描述从用户发送消息到 AI 回复完成的完整数据流，涉及的核心类与处理阶段。
 
 ## 核心类概览

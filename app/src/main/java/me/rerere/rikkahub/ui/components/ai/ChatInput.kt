@@ -149,18 +149,12 @@ fun ChatInput(
     onStopVoiceMode: () -> Unit = {},
 ) {
     val toaster = LocalToaster.current
-    val containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+    val containerColor = MaterialTheme.colorScheme.surface
 
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
 
-    val themeShape = MaterialTheme.shapes.largeIncreased
-    val containerShape = RoundedCornerShape(
-        topStart = themeShape.topStart,
-        topEnd = themeShape.topEnd,
-        bottomEnd = themeShape.bottomEnd,
-        bottomStart = themeShape.bottomStart,
-    )
+    val containerShape = RoundedCornerShape(24.dp)
     val modelListState = rememberModelListState(
         modelId = chatModel?.id,
         providers = settings.providers,
@@ -228,8 +222,8 @@ fun ChatInput(
             modifier = modifier
                 .imePadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 8.dp)
-                .padding(bottom = 8.dp),
+                .padding(horizontal = 14.dp)
+                .padding(bottom = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             MessageQueuePanel(
@@ -251,7 +245,7 @@ fun ChatInput(
                     ),
                 shape = containerShape,
                 tonalElevation = 0.dp,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 color = if (settings.displaySetting.enableBlurEffect) Color.Transparent else containerColor,
             ) {
                 Column(
@@ -300,7 +294,7 @@ fun ChatInput(
                                 // Model Picker
                                 ModelSelectorButton(
                                     state = modelListState,
-                                    onlyIcon = true,
+                                    onlyIcon = false,
                                     modifier = Modifier,
                                 )
 

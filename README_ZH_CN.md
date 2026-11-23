@@ -1,100 +1,27 @@
-<div align="center">
-  <img src="docs/icon.png" alt="App 图标" width="100" />
-  <h1>RikkaHub</h1>
+# iAgent 安卓版
 
-一个原生Android LLM 聊天客户端，支持切换不同的供应商进行聊天 🤖💬
+iAgent 是 [ai.iagent.dev](https://ai.iagent.dev/) 的安卓客户端。打开 App 可以先浏览工作台、模型和公开技能。聊天、生成图片或视频、充值时使用 iAgent 账号登录。
 
-[English](README.md) | [繁體中文](README_ZH_TW.md) | 简体中文
+[English](README.md) · [繁體中文](README_ZH_TW.md) · [下载构建](https://github.com/nbb2025/rikkahub/actions/workflows/android.yml)
 
-点击链接加入群聊 👉 [【RikkaHub】](https://qm.qq.com/q/I8MSU0FkOu)
+## 安装
 
-</div>
+打开一次成功的 **iAgent Android** 构建，下载 **iAgent-Android-APKs**，解压并安装对应 APK。多数安卓手机和 Apple Silicon 模拟器使用 `arm64-v8a`，Intel 模拟器通常使用 `x86_64`。系统需为 Android 8.0 或更新版本。
 
-<div align="center">
-  <img src="docs/img/poster.png" alt="RikkaHub" width="800" />
-</div>
+## 工作台
 
+- **聊天**会按账号同步可用的 iAgent 分组和模型。支持助手、会话历史、文件附件、工具调用、Skill 和 MCP。
+- **创作**提供 GPT Image 等图片模型，以及 Wan、Video-LT 等视频模型。图片和视频分别保留草稿，参考素材和参数随模型变化。
+- **模型广场**展示线上模型、分组倍率和已公布的基准 Token 价格。模型选择器优先使用 iAgent 线上排序规则，缺少规则时按名称自然降序排列。
+- **余额充值**使用 iAgent 的支付渠道和订单接口。付款时打开支付页或二维码，iAgent 确认到账后更新余额。
+- **Agent 技能**支持发现 [Skills.sh](https://skills.sh/) 上的公开技能，也可从 GitHub、ZIP 或 `SKILL.md` 文件导入。
 
-## 🚀 下载
+在「账号 → 应用偏好 → 关于」可以找到官网和开源仓库。iAgent QQ 群号为 **116098473**，点群号即可复制。
 
-🔗 [前往官网下载](https://rikka-ai.com/download)（推荐）
+## 开发与构建
 
-🔗 [前往 Google Play 下载](https://play.google.com/store/apps/details?id=me.rerere.rikkahub)
+[Android 开发和构建文档](docs/android.md)包含环境、接口、测试和签名流程。每次推送到 `master`，GitHub Actions 会执行测试并上传分架构的精简 APK。
 
-> [!WARNING]
-> RikkaHub 存在许多 fork 版本，fork 版本出现问题与 RikkaHub 无关，请谨慎使用 fork 版本，避免隐私泄露或者过度索要权限问题。
+## 开源许可
 
-## 💖 赞助商
-
-| 赞助商 | 介绍 |
-|:---:|:---|
-| <img src="docs/sponsors/sta1n.png" alt="STA1N API" width="50" /><br /><b><a href="https://sta1n.ai">STA1N API🍪</a></b> | 感谢<a href="https://sta1n.ai">STA1N API</a>对本项目的赞助！主营 RP 的站。 |
-| <img src="docs/sponsors/api-mart.png" alt="APIMart" width="50" /><br /><b><a href="https://go.apimart.ai/gh-rikkahub">APIMart</a></b> | 感谢 APIMart 赞助了本项目！APIMart 是专注 AI 图片/视频生成的低价 API 平台，GPT-Image-2 低至 $0.006/张，1 美元可出图 160+ 张。图片、视频一套异步 API 通吃，提交任务拿 ID、回调取结果，跑批万张不超时、换模型不改代码。按量付费、无月费，通过<a href="https://go.apimart.ai/gh-rikkahub">此注册链接</a>注册即可开用。 |
-| <img src="docs/sponsors/suixiang.jpg" alt="随想AI中转" width="50" /><br /><b><a href="https://sui-xiang.com">随想AI中转</a></b> | 感谢<a href="https://sui-xiang.com">随想AI中转</a>对本项目的赞助！随想AI中转 是一家可靠高效的 API 中继服务提供商，提供 Claude、Codex、Gemini 等的中继服务。注重隐私的中转站·无数据倒卖·无模型掺水，隐私，透明，极速售后。新账户注册每日签到就送 0.5 元测试额度，充值额度 1:1，无需订阅，按量付费。多线路冗余、跨区域容灾、自动故障切换，长链路 SSE 不中断。99.9% 可用性，关键调用从不掉队。 |
-| <img src="docs/sponsors/ztest.png" alt="真测 ztest.ai" width="50" /><br /><b><a href="https://ztest.ai">真测 ztest.ai</a></b> | 感谢<a href="https://ztest.ai">真测 ztest.ai</a>对本项目的赞助！真测 ztest.ai 是一个 AI 中转站模型检测平台，检测结果数据全公开，23 项探针覆盖协议、身份、能力、内容完整性、安全性、性能六大维度，交叉印证识别伪造与降级。作为独立第三方验证平台，实时监测 AI 中转站的模型真实性、响应质量与服务可用性。 |
-| <img src="docs/sponsors/maru.png" alt="MaruCode" width="50" /><br /><b><a href="https://api.muteki.site/register?aff=Rikkahub&promo=Rikkahub">MaruCode</a></b> | <b><a href="https://api.muteki.site/register?aff=Rikkahub&promo=Rikkahub">MaruCode</a></b> 是一家偶尔做做慈善的小破站 API，自营号池，主要提供 Codex、Claude Code、GPT Image 等主流模型，支持 Websocket 协议，明码标价(Codex 0.25x, CC 1.5x)，透明汇率(1:1)，<a href="https://api.muteki.site/register?aff=Rikkahub&promo=Rikkahub">新用户注册送 2 刀</a>。<a href="https://images-2.muteki.site">生图工作台🖼️</a> |
-| <img src="docs/sponsors/naapi.png" alt="钠API" width="50" /><br /><b><a href="https://naapi.cc/register?aff=rikkahub">钠API</a></b> | 感谢<a href="https://naapi.cc/register?aff=rikkahub">钠API</a>对本项目的赞助！钠API（naapi.cc）是 OpenAI 兼容的 LLM 网关，以优惠价格提供 OpenAI、Anthropic、Google 等 300+ 模型访问。一个 base URL 加一个 key 即可接入；多线路冗余、自动故障切换，长链路 SSE 不中断；按量付费、充值额度 1:1，无订阅、无隐藏加价。 |
-
-## ✨ 功能特色
-
-- 🎨 现代化安卓APP设计（Material 3 Expressive / 预测性返回）
-- 📦 工作区：基于 proot 的 Linux 智能体环境
-- 📱 Phone Use：让 AI 操控手机
-- 🎬 媒体生成（图片、视频）
-- 🔄 多种类型的供应商支持，自定义 API / URL / 模型（目前支持 OpenAI、Google、Anthropic）
-- 🖥️ Web多端访问支持
-- 🛠️ MCP 与 Skills 支持
-- 📝 Markdown 渲染（支持代码高亮、数学公式、表格、Mermaid）
-- 🔍 搜索功能（Exa、Tavily、Zhipu、LinkUp、Brave、Perplexity、..）
-- 🧩 Prompt 变量（模型名称、时间等）
-- 🤳 二维码导出和导入提供商
-- 🤖 智能体自定义
-- 🧠 基于文件的记忆
-- 📝 AI翻译
-- 🌐 自定义HTTP请求头和请求体
-- 💌 SillyTavern 角色卡导入
-
-## ✨ 开发
-
-> [!IMPORTANT]
-> 本项目不接受 Pull Request（PR）。
-
-本项目使用[Android Studio](https://developer.android.com/studio)开发。
-
-技术栈文档:
-
-- [Kotlin](https://kotlinlang.org/) (开发语言)
-- [Koin](https://insert-koin.io/) (依赖注入)
-- [Jetpack Compose](https://developer.android.com/jetpack/compose) (UI 框架)
-- [DataStore](https://developer.android.com/topic/libraries/architecture/datastore?hl=zh-cn#preferences-datastore) (
-  偏好数据存储)
-- [Room](https://developer.android.com/training/data-storage/room) (数据库)
-- [Coil](https://coil-kt.github.io/coil/) (图片加载)
-- [Material 3 Expressive](https://m3.material.io/) (UI 设计)
-- [Navigation 3](https://developer.android.com/guide/navigation/navigation-3) (导航)
-- [Okhttp](https://square.github.io/okhttp/) (HTTP 客户端)
-- [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) (Json序列化)
-
-> [!TIP]
-> 你需要在 `app` 文件夹下添加 `google-services.json` 文件才能构建应用。
-
-## 💰 捐赠
-
-* [Ko-fi](https://ko-fi.com/reovodev)
-* [爱发电](https://afdian.com/a/reovo)
-
-## ⭐ Star History
-
-如果喜欢这个项目，请给个Star ⭐
-
-<a href="https://www.star-history.com/?type=date&repos=re-ovo%2Frikkahub">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=re-ovo/rikkahub&type=date&theme=dark&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=re-ovo/rikkahub&type=date&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=re-ovo/rikkahub&type=date&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
- </picture>
-</a>
-
-## 📄 许可证
-
-本项目基于 [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0) 开源。
+iAgent 基于 [RikkaHub](https://github.com/rikkahub/rikkahub) 开发，源码遵循 [GNU AGPL-3.0](LICENSE)。各模块和依赖的版权信息见其声明。

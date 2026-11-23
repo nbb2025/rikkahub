@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalScrollCaptureInProgress
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -57,6 +58,7 @@ import kotlin.uuid.Uuid
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.ai.ui.UIMessage
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.model.Conversation
@@ -67,7 +69,7 @@ import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.ui.components.message.ChatMessage
 import me.rerere.rikkahub.ui.components.ui.ErrorCardsDisplay
 import me.rerere.rikkahub.ui.hooks.ImeLazyListAutoScroller
-import me.rerere.rikkahub.ui.pages.quickstart.QuickStartCard
+import me.rerere.rikkahub.ui.pages.iagent.IagentChatWelcome
 import me.rerere.rikkahub.ui.theme.ChatFontProvider
 import me.rerere.rikkahub.utils.plus
 import me.rerere.ui.components.ListSelectableItem
@@ -106,6 +108,7 @@ fun ChatList(
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
+    onPromptStarter: (String) -> Unit = {},
 ) {
     val previewProgress = rememberPreviewSwipeProgress(previewMode)
     val scope = rememberCoroutineScope()
@@ -165,6 +168,7 @@ fun ChatList(
                 onToolAnswer = onToolAnswer,
                 onToggleFavorite = onToggleFavorite,
                 onConversationSystemPromptChange = onConversationSystemPromptChange,
+                onPromptStarter = onPromptStarter,
                 selectionState = selectionState,
             )
         }
@@ -238,6 +242,7 @@ private fun ChatListNormal(
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
     selectionState: ChatSelectionState,
+    onPromptStarter: (String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val loadingState by rememberUpdatedState(loading)
@@ -348,6 +353,11 @@ private fun ChatListNormal(
                     .topFadingEdge(innerPadding.calculateTopPadding() + 24.dp)
                     .hazeSource(state = hazeState),
             ) {
+            if (conversation.messageNodes.isEmpty() && !loading && !settings.init) {
+                item(key = "IagentChatWelcome") {
+                    IagentChatWelcome(onPromptStarter = onPromptStarter)
+                }
+            }
             itemsIndexed(
                 items = conversation.messageNodes,
                 key = { index, item -> item.id },
@@ -442,8 +452,13 @@ private fun ChatListNormal(
 
             // 没有可用模型就发不了消息，放在消息后面，空会话时在顶部、有消息时贴着输入框
             if (needsSetup) {
-                item(key = "QuickStartCard") {
-                    QuickStartCard(modifier = Modifier.animateItem())
+                item(key = "IagentModelsEmpty") {
+                    Text(
+                        stringResource(R.string.iagent_chat_models_empty),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 

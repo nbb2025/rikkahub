@@ -6,6 +6,7 @@ import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.core.animateDp
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,15 +18,20 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -52,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +67,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -73,12 +81,16 @@ import kotlinx.coroutines.launch
 import me.rerere.ui.toast.ToastType
 import me.rerere.ui.toast.ToasterState
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.CheckList
+import me.rerere.hugeicons.stroke.Clock01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Download01
 import me.rerere.hugeicons.stroke.ImageToVideo
+import me.rerere.hugeicons.stroke.Image02
 import me.rerere.hugeicons.stroke.Settings03
+import me.rerere.mediagen.model.MediaKind
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.model.MediaCreationNode
@@ -93,11 +105,10 @@ import org.koin.core.parameter.parametersOf
 import kotlin.uuid.Uuid
 
 /**
- * 一个媒体创作会话：一条时间线，最新的记录在最下面，紧挨着输入区，上一轮的产出可以直接放回输入区继续用。
- * 再来一次、修改后重新生成的结果留在原来那条记录的位置上，作为它的另一个版本。
+ * 创作表单与作品视图共享会话草稿和媒体任务。作品可以放回表单继续创作。
  */
 @Composable
-fun MediaCreationPage(id: String) {
+fun MediaCreationPage(id: String, workspace: Boolean = false) {
     val vm: MediaCreationVM = koinViewModel(parameters = { parametersOf(id) })
     val navController = LocalNavController.current
     val toaster = LocalToaster.current
@@ -114,9 +125,10 @@ fun MediaCreationPage(id: String) {
     var showUploadDialog by remember { mutableStateOf(false) }
     var confirmDeleteSelected by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
+    var showResults by rememberSaveable { mutableStateOf(false) }
 
-    BackHandler(enabled = selectedNodes != null) {
-        vm.endSelection()
+    BackHandler(enabled = selectedNodes != null || showResults) {
+        if (selectedNodes != null) vm.endSelection() else showResults = false
     }
 
     LaunchedEffect(vm) {
@@ -128,105 +140,128 @@ fun MediaCreationPage(id: String) {
             }
         }
     }
+    LaunchedEffect(vm) {
+        vm.submitted.collect { showResults = true }
+    }
+    var previousAssets by remember { mutableStateOf(draft.assets.toSet()) }
+    var previousEdit by remember { mutableStateOf(draft.editingNodeId) }
+    LaunchedEffect(draft.assets, draft.editingNodeId) {
+        if (draft.assets.any { it !in previousAssets } || draft.editingNodeId != null && draft.editingNodeId != previousEdit) {
+            showResults = false
+        }
+        previousAssets = draft.assets.toSet()
+        previousEdit = draft.editingNodeId
+    }
 
-    // 从会话列表点进来时由列表项展开；切换途中带着圆角，到位后变成直角
     val heroCorner by LocalNavAnimatedContentScope.current.transition.animateDp(label = "heroCorner") { state ->
         if (state == EnterExitState.Visible) 0.dp else 24.dp
     }
-
+    val colors = MaterialTheme.colorScheme
     Scaffold(
-        modifier = Modifier.heroContainer(mediaCreationHeroKey(id), RoundedCornerShape(heroCorner)),
+        containerColor = colors.background,
+        modifier = if (workspace) Modifier else Modifier.heroContainer(mediaCreationHeroKey(id), RoundedCornerShape(heroCorner)),
         topBar = {
-            TopAppBar(
-                title = {
+            Surface(color = colors.background) {
+                Row(
+                    Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 15.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (!workspace) BackButton()
                     val selected = selectedNodes
-                    val current = session
-                    if (selected != null) {
-                        Text(
-                            text = stringResource(R.string.media_creation_page_selected_count, selected.size),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    } else {
-                        // 点标题改名
-                        Surface(
-                            onClick = { renaming = true },
-                            enabled = current != null,
-                            shape = CircleShape,
-                            color = Color.Transparent,
-                        ) {
-                            Text(
-                                text = when {
-                                    current == null -> stringResource(R.string.media_creation_title)
-                                    current.title.isBlank() -> stringResource(R.string.media_creation_page_new_session)
-                                    else -> current.title
-                                },
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            )
-                        }
+                    val title = when {
+                        selected != null -> stringResource(R.string.media_creation_page_selected_count, selected.size)
+                        showResults -> stringResource(R.string.iagent_studio_results)
+                        else -> session?.title?.takeUnless { workspace || it.isBlank() }
+                            ?: stringResource(R.string.iagent_studio_title)
                     }
-                },
-                navigationIcon = {
-                    BackButton()
-                },
-                actions = {
-                    if (selectedNodes == null && nodes.itemCount > 0) {
-                        val label = stringResource(R.string.media_creation_page_select)
-                        Tooltip(tooltip = { Text(label) }) {
-                            IconButton(onClick = { vm.startSelection() }) {
-                                Icon(HugeIcons.CheckList, contentDescription = label)
+                    Text(
+                        title,
+                        modifier = Modifier.weight(1f).then(
+                            if (!workspace && session != null && !showResults && selected == null) {
+                                Modifier.clickable { renaming = true }
+                            } else Modifier
+                        ),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (selected == null) {
+                        FilledTonalButton(
+                            onClick = { showResults = !showResults },
+                            shape = RoundedCornerShape(14.dp),
+                            contentPadding = PaddingValues(horizontal = 13.dp, vertical = 8.dp),
+                        ) {
+                            Icon(if (showResults) HugeIcons.Add01 else HugeIcons.Image02, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(stringResource(if (showResults) R.string.iagent_studio_create else R.string.iagent_studio_results))
+                        }
+                        if (showResults && nodes.itemCount > 0) {
+                            IconButton(onClick = vm::startSelection) {
+                                Icon(HugeIcons.CheckList, stringResource(R.string.media_creation_page_select))
+                            }
+                        } else if (workspace) {
+                            IconButton(onClick = { navController.navigate(Screen.MediaCreationSessions) }) {
+                                Icon(HugeIcons.Clock01, stringResource(R.string.iagent_studio_sessions))
                             }
                         }
                     }
-                },
-            )
-        },
-    ) { innerPadding ->
-        // 底部的安全区和键盘留给输入区自己处理
-        val layoutDirection = LocalLayoutDirection.current
-        Column(
-            modifier = Modifier
-                .padding(
-                    top = innerPadding.calculateTopPadding(),
-                    start = innerPadding.calculateStartPadding(layoutDirection),
-                    end = innerPadding.calculateEndPadding(layoutDirection),
-                )
-                .fillMaxSize()
-        ) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                MediaCreationTimeline(
-                    vm = vm,
-                    nodes = nodes,
-                    editingNodeId = draft.editingNodeId,
-                    selectedNodes = selectedNodes,
-                    hasModels = settings.mediaGenerationProviders.any { it.models.isNotEmpty() },
-                    onOpenMediaSettings = { navController.navigate(Screen.SettingMedia) },
-                )
+                }
             }
-            val selected = selectedNodes
-            if (selected != null) {
-                MediaCreationSelectionBar(
-                    vm = vm,
-                    selectedCount = selected.size,
-                    allSelected = nodes.itemCount > 0 && selected.size >= nodes.itemCount,
-                    onDelete = { confirmDeleteSelected = true },
-                )
+        },
+    ) { insets ->
+        val direction = LocalLayoutDirection.current
+        Column(
+            Modifier.padding(
+                top = insets.calculateTopPadding(),
+                start = insets.calculateStartPadding(direction),
+                end = insets.calculateEndPadding(direction),
+            ).fillMaxSize()
+        ) {
+            if (showResults || selectedNodes != null) {
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                    MediaCreationTimeline(
+                        vm = vm,
+                        nodes = nodes,
+                        editingNodeId = draft.editingNodeId,
+                        selectedNodes = selectedNodes,
+                        onCreate = { showResults = false },
+                    )
+                }
+                if (selectedNodes != null) {
+                    MediaCreationSelectionBar(
+                        vm = vm,
+                        selectedCount = selectedNodes?.size ?: 0,
+                        allSelected = nodes.itemCount > 0 && (selectedNodes?.size ?: 0) >= nodes.itemCount,
+                        onDelete = { confirmDeleteSelected = true },
+                    )
+                }
             } else {
-                MediaCreationComposer(
-                    vm = vm,
-                    draft = draft,
-                    selection = selection,
-                    providers = settings.mediaGenerationProviders,
-                    recentOutputs = recentOutputs,
-                    uploadConfigured = uploadConfigured,
-                    onOpenMediaSettings = { navController.navigate(Screen.SettingMedia) },
-                )
+                val kind = draft.kind ?: selection?.model?.kind ?: MediaKind.IMAGE
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                    LazyColumn(
+                        modifier = Modifier.widthIn(max = 660.dp).fillMaxWidth().fillMaxHeight()
+                            .imePadding().navigationBarsPadding(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 22.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        item(key = "kind") {
+                            StudioModeSelector(kind, onSelect = vm::selectKind)
+                        }
+                        item(key = "editor") {
+                            MediaCreationComposer(
+                                vm = vm,
+                                draft = draft,
+                                selection = selection,
+                                providers = settings.mediaGenerationProviders,
+                                recentOutputs = recentOutputs,
+                                uploadConfigured = uploadConfigured,
+                                onOpenMediaSettings = { navController.navigate(Screen.IagentAccount) },
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -277,13 +312,11 @@ private fun MediaCreationTimeline(
     nodes: LazyPagingItems<MediaCreationNode>,
     editingNodeId: Uuid?,
     selectedNodes: Set<Uuid>?,
-    hasModels: Boolean,
-    onOpenMediaSettings: () -> Unit,
+    onCreate: () -> Unit,
 ) {
     val listState = rememberLazyListState()
 
-    // 列表是倒序排布的，第 0 项就是最下面那条最新的记录。停在底部时，新记录出现后跟着露出来；
-    // 往上翻看旧记录时不打扰。
+    // 最新任务排在最前。浏览较早作品时不移动当前位置。
     val newestId = nodes.newestId()
     LaunchedEffect(newestId) {
         if (newestId != null && listState.firstVisibleItemIndex <= 1) listState.scrollToItem(0)
@@ -299,14 +332,13 @@ private fun MediaCreationTimeline(
     }
 
     if (nodes.loadState.refresh is LoadState.NotLoading && nodes.itemCount == 0) {
-        TimelineEmpty(hasModels = hasModels, onOpenMediaSettings = onOpenMediaSettings)
+        TimelineEmpty(onCreate = onCreate)
         return
     }
 
     LazyColumn(
         state = listState,
-        reverseLayout = true,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.widthIn(max = 660.dp).fillMaxHeight().fillMaxWidth().navigationBarsPadding(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -344,64 +376,28 @@ private fun LazyPagingItems<MediaCreationNode>.newestId(): Uuid? =
     if (itemCount > 0) peek(0)?.id else null
 
 @Composable
-private fun TimelineEmpty(
-    hasModels: Boolean,
-    onOpenMediaSettings: () -> Unit,
-) {
+private fun TimelineEmpty(onCreate: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            // 键盘弹出后高度不够时可以滚动，不至于被裁掉
-            .verticalScroll(rememberScrollState())
-            .padding(32.dp),
+        modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(
-            modifier = Modifier
-                .padding(bottom = 12.dp)
-                .size(112.dp)
-                .background(
-                    color = if (hasModels) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerHighest
-                    },
-                    shape = (if (hasModels) MaterialShapes.Flower else MaterialShapes.Cookie4Sided).toShape(),
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
+        Surface(shape = RoundedCornerShape(21.dp), color = colors.primaryContainer) {
             Icon(
-                imageVector = if (hasModels) HugeIcons.ImageToVideo else HugeIcons.Settings03,
+                HugeIcons.ImageToVideo,
                 contentDescription = null,
-                modifier = Modifier.size(48.dp),
-                tint = if (hasModels) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+                tint = colors.onPrimaryContainer,
+                modifier = Modifier.padding(16.dp).size(29.dp),
             )
         }
-        if (hasModels) {
-            Text(
-                text = stringResource(R.string.media_creation_page_empty_hint),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-        } else {
-            Text(
-                text = stringResource(R.string.media_creation_page_no_providers),
-                style = MaterialTheme.typography.titleMediumEmphasized,
-                textAlign = TextAlign.Center,
-            )
-            Button(
-                onClick = onOpenMediaSettings,
-                shapes = ButtonDefaults.shapes(),
-            ) {
-                Text(stringResource(R.string.media_creation_page_go_configure))
-            }
-        }
+        Text(
+            stringResource(R.string.iagent_studio_results_empty),
+            style = MaterialTheme.typography.bodyLarge,
+            color = colors.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        TextButton(onClick = onCreate) { Text(stringResource(R.string.iagent_studio_create)) }
     }
 }
 

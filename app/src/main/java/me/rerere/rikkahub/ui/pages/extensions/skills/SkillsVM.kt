@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,10 +13,14 @@ import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.files.FileUtils
 import me.rerere.rikkahub.data.skills.InvalidSkillDir
+import me.rerere.rikkahub.data.skills.SkillDirectory
+import me.rerere.rikkahub.data.skills.SkillDirectoryEntry
 import me.rerere.rikkahub.data.skills.SkillManager
 import me.rerere.rikkahub.data.skills.SkillMetadata
 import me.rerere.rikkahub.data.skills.SkillValidationException
 import me.rerere.rikkahub.data.skills.SkillValidator
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
 import org.json.JSONArray
 import java.io.ByteArrayInputStream
 import java.net.HttpURLConnection
@@ -27,7 +32,10 @@ import kotlin.collections.iterator
 class SkillsVM(
     private val context: Application,
     private val skillManager: SkillManager,
+    httpClient: OkHttpClient,
 ) : ViewModel() {
+    private val skillDirectory = SkillDirectory(httpClient)
+
     private val _skills = MutableStateFlow<List<SkillMetadata>>(emptyList())
     val skills = _skills.asStateFlow()
 
@@ -106,83 +114,73 @@ class SkillsVM(
         }
     }
 
-    fun importSkillFromGitHub(repoUrl: String, onResult: (Boolean, String) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val info = parseGitHubUrl(repoUrl) ?: run {
-                    withContext(
-                        Dispatchers.Main
-                    ) { onResult(false, context.getString(R.string.skills_page_import_error_invalid_github_url)) }
-                    return@launch
-                }
+    internal suspend fun discoverSkills(query: String) = skillDirectory.list(query)
 
-                // Collect all files recursively via GitHub Contents API
-                val files = mutableListOf<Pair<String, String>>() // relativePath -> downloadUrl
-                val listed = listFilesRecursively(info.owner, info.repo, info.branch, info.path, info.path, files)
-                if (!listed) {
-                    withContext(
-                        Dispatchers.Main
-                    ) { onResult(false, context.getString(R.string.skills_page_import_error_github_list_failed)) }
-                    return@launch
-                }
+    fun importSkillFromGitHub(repoUrl: String, onResult: (Boolean, String) -> Unit) = importGitHub(onResult) {
+        val info = parseGitHubUrl(repoUrl)
+            ?: error(context.getString(R.string.skills_page_import_error_invalid_github_url))
+        downloadGitHubSkill(info)
+    }
 
-                val skillMdEntry = files.find { it.first == "SKILL.md" } ?: run {
-                    withContext(
-                        Dispatchers.Main
-                    ) { onResult(false, context.getString(R.string.skills_page_import_error_no_skill_md)) }
-                    return@launch
-                }
-
-                val skillMdBytes = downloadBytes(skillMdEntry.second) ?: run {
-                    withContext(
-                        Dispatchers.Main
-                    ) { onResult(false, context.getString(R.string.skills_page_import_error_download_skill_md)) }
-                    return@launch
-                }
-
-                val name = SkillValidator.validate(skillMdBytes.toString(Charsets.UTF_8)).getOrElse {
-                    withContext(Dispatchers.Main) { onResult(false, invalidFormatMessage("SKILL.md", it)) }
-                    return@launch
-                }
-
-                // 按字节下载保存，避免图片等二进制附属文件被当作 UTF-8 文本解码而损坏
-                val fileContents = LinkedHashMap<String, ByteArray>()
-                for ((relativePath, downloadUrl) in files) {
-                    val content = if (relativePath == "SKILL.md") skillMdBytes else downloadBytes(downloadUrl)
-                    if (content == null) {
-                        withContext(
-                            Dispatchers.Main
-                        ) {
-                            onResult(
-                                false,
-                                context.getString(R.string.skills_page_import_error_download_file, relativePath)
-                            )
-                        }
-                        return@launch
-                    }
-                    fileContents[relativePath] = content
-                }
-
-                val saved = skillManager.saveSkillFileBytesAtomically(name, fileContents)
-                if (!saved) {
-                    withContext(
-                        Dispatchers.Main
-                    ) { onResult(false, context.getString(R.string.skills_page_import_error_save_failed, name)) }
-                    return@launch
-                }
-
-                refreshSkills()
-                withContext(Dispatchers.Main) { onResult(true, name) }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                withContext(Dispatchers.Main) {
-                    onResult(
-                        false,
-                        e.message ?: context.getString(R.string.skills_page_unknown_error)
-                    )
-                }
-            }
+    internal fun importDirectorySkill(entry: SkillDirectoryEntry, onResult: (Boolean, String) -> Unit) =
+        importGitHub(onResult) {
+            val folder = skillDirectory.findSkillDirectory(entry)
+                ?: error(context.getString(R.string.skills_page_import_error_no_skill_md))
+            downloadGitHubSkill(
+                info = GitHubRepoInfo(entry.owner, entry.repository, "HEAD", folder),
+                expectedRootName = entry.slug.takeIf { folder.isEmpty() },
+                replaceExisting = false,
+            )
         }
+
+    private fun importGitHub(onResult: (Boolean, String) -> Unit, readSkill: suspend () -> String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val name = try {
+                readSkill().also { refreshSkills() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onResult(false, e.message ?: context.getString(R.string.skills_page_unknown_error))
+                }
+                return@launch
+            }
+            withContext(Dispatchers.Main) { onResult(true, name) }
+        }
+    }
+
+    private fun downloadGitHubSkill(
+        info: GitHubRepoInfo,
+        expectedRootName: String? = null,
+        replaceExisting: Boolean = true,
+    ): String {
+        val files = mutableListOf<Pair<String, String>>() // relative path to download URL
+        if (!listFilesRecursively(info.owner, info.repo, info.branch, info.path, info.path, files)) {
+            error(context.getString(R.string.skills_page_import_error_github_list_failed))
+        }
+        val skillMdEntry = files.find { it.first == "SKILL.md" }
+            ?: error(context.getString(R.string.skills_page_import_error_no_skill_md))
+        val skillMdBytes = downloadBytes(skillMdEntry.second)
+            ?: error(context.getString(R.string.skills_page_import_error_download_skill_md))
+        val name = SkillValidator.validate(skillMdBytes.toString(Charsets.UTF_8)).getOrElse {
+            error(invalidFormatMessage("SKILL.md", it))
+        }
+        if (expectedRootName != null && !name.equals(expectedRootName, ignoreCase = true)) {
+            error(context.getString(R.string.skills_page_import_error_no_skill_md))
+        }
+
+        val fileContents = files.associate { (relativePath, downloadUrl) ->
+            val content = if (relativePath == "SKILL.md") skillMdBytes else downloadBytes(downloadUrl)
+            relativePath to
+                (content ?: error(context.getString(R.string.skills_page_import_error_download_file, relativePath)))
+        }
+        if (!skillManager.saveSkillFileBytesAtomically(name, fileContents, replaceExisting)) {
+            if (!replaceExisting && skillManager.findSkill(name) != null) {
+                error(context.getString(R.string.skills_page_discovery_already_imported, name))
+            }
+            error(context.getString(R.string.skills_page_import_error_save_failed, name))
+        }
+        return name
     }
 
     private fun invalidFormatMessage(path: String, error: Throwable): String {
@@ -302,14 +300,22 @@ class SkillsVM(
         basePath: String,
         result: MutableList<Pair<String, String>>,
     ): Boolean {
-        val apiUrl = "https://api.github.com/repos/$owner/$repo/contents/$dirPath?ref=$branch"
+        val apiUrl = "https://api.github.com".toHttpUrl().newBuilder()
+            .addPathSegment("repos")
+            .addPathSegment(owner)
+            .addPathSegment(repo)
+            .addPathSegment("contents")
+            .apply { if (dirPath.isNotEmpty()) addPathSegments(dirPath) }
+            .addQueryParameter("ref", branch)
+            .build()
+            .toString()
         val json = downloadBytes(apiUrl)?.toString(Charsets.UTF_8) ?: return false
         val array = JSONArray(json)
         for (i in 0 until array.length()) {
             val item = array.getJSONObject(i)
             val type = item.getString("type")
             val itemPath = item.getString("path")
-            val relativePath = itemPath.removePrefix("$basePath/").removePrefix(basePath)
+            val relativePath = if (basePath.isEmpty()) itemPath else itemPath.removePrefix("$basePath/")
             when (type) {
                 "file" -> {
                     val downloadUrl = item.optString("download_url").takeIf { it.isNotBlank() }
@@ -342,8 +348,8 @@ class SkillsVM(
         val match = regex.matchEntire(trimmed) ?: return null
         val owner = match.groupValues[1]
         val repo = match.groupValues[2]
-        val branch = match.groupValues[3].ifBlank { "HEAD" }
-        val subPath = match.groupValues[4].trimStart('/')
+        val branch = Uri.decode(match.groupValues[3]).ifBlank { "HEAD" }
+        val subPath = Uri.decode(match.groupValues[4]).trimStart('/')
         return GitHubRepoInfo(owner, repo, branch, subPath)
     }
 

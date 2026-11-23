@@ -84,7 +84,7 @@ import me.rerere.ui.components.RikkaConfirmDialog
 import org.koin.androidx.compose.koinViewModel
 
 @Composable
-fun SkillsPage() {
+fun SkillsPage(catalogOnly: Boolean = false, onSignIn: () -> Unit = {}) {
     val navController = LocalNavController.current
     val vm = koinViewModel<SkillsVM>()
     val skills by vm.skills.collectAsStateWithLifecycle()
@@ -92,6 +92,7 @@ fun SkillsPage() {
     val toaster = LocalToaster.current
     val context = LocalContext.current
     var showImportSheet by rememberSaveable { mutableStateOf(false) }
+    var showDiscovery by rememberSaveable { mutableStateOf(false) }
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
     var showImportDialog by rememberSaveable { mutableStateOf(false) }
     val invalidSkillDirs by vm.invalidSkillDirs.collectAsStateWithLifecycle()
@@ -134,7 +135,7 @@ fun SkillsPage() {
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showImportSheet = true }) {
+            if (!catalogOnly) FloatingActionButton(onClick = { showImportSheet = true }) {
                 Icon(HugeIcons.Add01, contentDescription = null)
             }
         },
@@ -151,6 +152,17 @@ fun SkillsPage() {
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            item(key = "discover") {
+                CardGroup {
+                    item(
+                        onClick = { showDiscovery = true },
+                        leadingContent = { CardGroupIcon(HugeIcons.Search01) },
+                        headlineContent = { Text(stringResource(R.string.skills_page_discovery_title)) },
+                        supportingContent = { Text(stringResource(R.string.skills_page_discovery_description)) },
+                    )
+                }
+            }
+            if (catalogOnly) return@LazyColumn
             if (skills.isEmpty()) {
                 item {
                     ExtensionEmptyState(
@@ -222,6 +234,23 @@ fun SkillsPage() {
                 }
             }
         }
+    }
+
+    if (showDiscovery) {
+        SkillDiscoverySheet(
+            vm = vm,
+            onDismiss = { showDiscovery = false },
+            onRequireAccount = if (catalogOnly) {
+                {
+                    showDiscovery = false
+                    onSignIn()
+                }
+            } else null,
+            onImported = { name ->
+                showDiscovery = false
+                navController.navigate(Screen.SkillDetail(name))
+            },
+        )
     }
 
     if (showImportSheet) {

@@ -38,6 +38,7 @@ val MediaGenerationProviderSetting.typeName: String
         is MediaGenerationProviderSetting.Volcengine -> stringResource(R.string.media_provider_type_volcengine)
         is MediaGenerationProviderSetting.MiniMax -> "MiniMax"
         is MediaGenerationProviderSetting.OpenRouter -> "OpenRouter"
+        is MediaGenerationProviderSetting.Iagent -> "iAgent"
     }
 
 val MediaKind.label: String
@@ -86,6 +87,8 @@ fun MediaGenerationProviderBasicConfigure(
                     singleLine = true
                 )
             }
+
+            if (setting is MediaGenerationProviderSetting.Iagent) return@CardGroup
 
             formItem(headlineContent = { Text("API Key") }) {
                 OutlinedTextField(

@@ -93,8 +93,9 @@ private fun createSettingsDataStore(context: Context): DataStore<Preferences> {
 class SettingsStore internal constructor(
     private val dataStore: DataStore<Preferences>,
     scope: CoroutineScope,
+    private val normalize: (Settings) -> Settings = Settings::normalized,
 ) {
-    constructor(context: Context, scope: AppScope) : this(context.settingsStore, scope)
+    constructor(context: Context, scope: AppScope) : this(context.settingsStore, scope, Settings::normalizedForIagent)
 
     companion object {
         // 版本号
@@ -193,7 +194,7 @@ class SettingsStore internal constructor(
             // 启动次数和设置在同一次写入里落盘
             context.settingsStore.edit { preferences ->
                 preferences[LAUNCH_COUNT] = launchCount
-                preferences.putSettings(settings.normalized())
+                preferences.putSettings(settings.normalizedForIagent())
             }
         }
     }
@@ -229,7 +230,7 @@ class SettingsStore internal constructor(
         // 整份设置的 JSON 解码很重，不能放在主线程
         scope.launch(Dispatchers.Default) {
             state.value = try {
-                preferencesFlow.first().toSettings().normalized()
+                normalize(preferencesFlow.first().toSettings())
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -264,7 +265,7 @@ class SettingsStore internal constructor(
                 return
             }
             // 规整会重建提供商、助手等对象，而界面按引用判断它们有没有变：规整没改动任何东西时保留传入的实例
-            val normalized = updated.normalized()
+            val normalized = normalize(updated)
             state.value = if (normalized == updated) updated else normalized
         }
         persist()

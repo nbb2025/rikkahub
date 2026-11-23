@@ -29,9 +29,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
@@ -47,6 +51,7 @@ import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.navigation3.ui.NavDisplay
 import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
@@ -61,6 +66,8 @@ import me.rerere.ui.toast.rememberToasterState
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.iagent.IagentAccount
+import me.rerere.rikkahub.data.iagent.IagentModels
 import me.rerere.rikkahub.data.db.DatabaseMigrationTracker
 import me.rerere.rikkahub.data.db.MigrationState
 import me.rerere.rikkahub.data.event.AppEvent
@@ -110,6 +117,14 @@ import me.rerere.rikkahub.ui.pages.imggen.ImageGenPage
 import me.rerere.rikkahub.ui.pages.log.LogPage
 import me.rerere.rikkahub.ui.pages.mediacreation.MediaCreationPage
 import me.rerere.rikkahub.ui.pages.mediacreation.MediaCreationSessionsPage
+import me.rerere.rikkahub.ui.pages.iagent.IagentAccountPage
+import me.rerere.rikkahub.ui.pages.iagent.IagentBillingPage
+import me.rerere.rikkahub.ui.pages.iagent.IagentCatalogPage
+import me.rerere.rikkahub.ui.pages.iagent.IagentDestination
+import me.rerere.rikkahub.ui.pages.iagent.IagentGuestPage
+import me.rerere.rikkahub.ui.pages.iagent.IagentLoginPage
+import me.rerere.rikkahub.ui.pages.iagent.IagentWorkbench
+import me.rerere.rikkahub.ui.pages.mediacreation.IagentStudioPage
 import me.rerere.rikkahub.ui.pages.search.SearchPage
 import me.rerere.rikkahub.ui.pages.setting.SettingAboutPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesPage
@@ -119,26 +134,21 @@ import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesGeneralPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesNetworkPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesUIPage
 import me.rerere.rikkahub.ui.pages.setting.SettingThemePage
-import me.rerere.rikkahub.ui.pages.setting.SettingDonatePage
 import me.rerere.rikkahub.ui.pages.setting.SettingFilesPage
 import me.rerere.rikkahub.ui.pages.setting.SettingMcpDetailPage
 import me.rerere.rikkahub.ui.pages.setting.SettingMcpPage
 import me.rerere.rikkahub.ui.pages.setting.SettingModelPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPage
-import me.rerere.rikkahub.ui.pages.setting.SettingProviderDetailPage
-import me.rerere.rikkahub.ui.pages.setting.SettingProviderPage
 import me.rerere.rikkahub.ui.pages.setting.SettingSearchDetailPage
 import me.rerere.rikkahub.ui.pages.setting.SettingSearchPage
-import me.rerere.rikkahub.ui.pages.setting.SettingMediaPage
-import me.rerere.rikkahub.ui.pages.setting.SettingMediaProviderDetailPage
 import me.rerere.rikkahub.ui.pages.setting.SettingSpeechPage
 import me.rerere.rikkahub.ui.pages.setting.SettingWebPage
-import me.rerere.rikkahub.ui.pages.quickstart.QuickStartPage
 import me.rerere.rikkahub.ui.pages.share.handler.ShareHandlerPage
 import me.rerere.rikkahub.ui.pages.stats.StatsPage
 import me.rerere.rikkahub.ui.pages.translator.TranslatorPage
 import me.rerere.rikkahub.ui.pages.webview.WebViewPage
 import me.rerere.rikkahub.ui.theme.RikkahubTheme
+import me.rerere.rikkahub.ui.theme.presets.IagentThemePreset
 import me.rerere.rikkahub.utils.CrashHandler
 import me.rerere.rikkahub.utils.openUsageAccessSettings
 import okhttp3.OkHttpClient
@@ -161,9 +171,12 @@ fun conversationIntent(context: Context, conversationId: String): Intent =
 class RouteActivity : ComponentActivity() {
     private val okHttpClient by inject<OkHttpClient>()
     private val settingsStore by inject<SettingsStore>()
+    private val iagentAccount by inject<IagentAccount>()
     private val mediaCreationRepository by inject<MediaCreationRepository>()
     private var navStack: MutableList<NavKey>? = null
+    private var navigationOwner: Long? = null
     private val pendingIntents = ArrayDeque<Intent>()
+    private val afterLoginIntents = ArrayDeque<Intent>()
 
     // Volume key listener registry — last registered handler wins
     internal val volumeKeyListeners = mutableListOf<(isVolumeUp: Boolean) -> Boolean>()
@@ -193,6 +206,17 @@ class RouteActivity : ComponentActivity() {
         if (savedInstanceState == null) {
             handleIntent(intent)
         }
+        lifecycleScope.launch {
+            val appearance = getSharedPreferences("iagent-appearance", MODE_PRIVATE)
+            if (!appearance.getBoolean("sea-salt-default", false)) {
+                settingsStore.update {
+                    if (it.dynamicColor && it.themeId == "sakura") {
+                        it.copy(dynamicColor = false, themeId = IagentThemePreset.id)
+                    } else it
+                }
+                appearance.edit().putBoolean("sea-salt-default", true).apply()
+            }
+        }
         setContent {
             RikkahubTheme {
                 setSingletonImageLoaderFactory { context ->
@@ -214,7 +238,7 @@ class RouteActivity : ComponentActivity() {
                         }
                         .build()
                 }
-                AppRoutes()
+                IagentRoot()
             }
         }
     }
@@ -235,6 +259,14 @@ class RouteActivity : ComponentActivity() {
         val backStack = navStack ?: run {
             // Compose 尚未创建导航栈，待就绪后处理。
             pendingIntents.addLast(intent)
+            return
+        }
+        if (navigationOwner == null || iagentAccount.user.value?.id != navigationOwner) {
+            if (intent.action in setOf(ACTION_TRANSLATE, ACTION_MEDIA_CREATION, Intent.ACTION_SEND, Intent.ACTION_PROCESS_TEXT) ||
+                intent.hasExtra(EXTRA_CONVERSATION_ID) || mediaCreationDestination(intent) != null) {
+                afterLoginIntents.addLast(intent)
+                if (backStack.lastOrNull() != Screen.IagentLogin) backStack.add(Screen.IagentLogin)
+            }
             return
         }
         val destination = when (intent.action) {
@@ -272,9 +304,46 @@ class RouteActivity : ComponentActivity() {
         return runCatching { Uuid.parse(sessionId) }.getOrNull()?.let { Screen.MediaCreation(it.toString()) }
     }
 
+    @Composable
+    private fun IagentRoot() {
+        val user by iagentAccount.user.collectAsStateWithLifecycle()
+        val models = koinInject<IagentModels>()
+        val owner = user?.id
+        var resume by rememberSaveable { mutableStateOf(IagentDestination.CHAT) }
+        var recharge by rememberSaveable { mutableStateOf(false) }
+        var starter by rememberSaveable { mutableStateOf("") }
+        LaunchedEffect(owner) {
+            if (owner != null) {
+                try {
+                    models.synchronize(owner)
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    android.util.Log.w("iAgent", "Model synchronization failed", error)
+                }
+            }
+        }
+        androidx.compose.runtime.key(owner) {
+            val initial = remember { if (owner == null) IagentDestination.CHAT else resume }
+            val openRecharge = remember { owner != null && recharge }
+            val prompt = remember { if (owner == null) "" else starter }
+            AppRoutes(owner, initial, openRecharge, prompt) { next, billing, text ->
+                resume = next
+                recharge = billing
+                starter = text
+            }
+        }
+    }
+
     @OptIn(ExperimentalComposeUiApi::class)
     @Composable
-    fun AppRoutes() {
+    private fun AppRoutes(
+        owner: Long?,
+        startDestination: IagentDestination,
+        openRecharge: Boolean,
+        starter: String,
+        onRequestLogin: (IagentDestination, Boolean, String) -> Unit,
+    ) {
         val toastState = rememberToasterState()
         val settings by settingsStore.settingsFlow.collectAsStateWithLifecycle()
         val tts = rememberCustomTtsState()
@@ -292,20 +361,50 @@ class RouteActivity : ComponentActivity() {
         }
         val migrationState by DatabaseMigrationTracker.state.collectAsStateWithLifecycle()
 
-        val startScreen = Screen.Chat(
-            id = if (readBooleanPreference("create_new_conversation_on_start", true)) {
+        val startScreen = remember {
+            Screen.Chat(
+            id = if (owner == null || starter.isNotBlank() || readBooleanPreference("create_new_conversation_on_start", true)) {
                 Uuid.random().toString()
             } else {
                 readStringPreference(
                     "lastConversationId",
                     Uuid.random().toString()
                 ) ?: Uuid.random().toString()
-            }
-        )
+            },
+            text = starter,
+            )
+        }
 
-        val backStack = rememberNavBackStack(startScreen)
+        val initialStack = remember(startScreen, startDestination, openRecharge) {
+            buildList {
+                add(startScreen)
+                when (startDestination) {
+                    IagentDestination.CHAT -> Unit
+                    IagentDestination.STUDIO -> add(Screen.IagentStudio)
+                    IagentDestination.ACCOUNT -> add(Screen.IagentAccount)
+                }
+                if (openRecharge) add(Screen.IagentBilling)
+            }.toTypedArray()
+        }
+        val backStack = rememberNavBackStack(*initialStack)
+        fun signIn(destination: IagentDestination, billing: Boolean = false, prompt: String = "") {
+            onRequestLogin(destination, billing, prompt)
+            if (backStack.lastOrNull() != Screen.IagentLogin) backStack.add(Screen.IagentLogin)
+        }
+        DisposableEffect(backStack) {
+            onDispose {
+                if (navStack === backStack) {
+                    navStack = null
+                    navigationOwner = null
+                }
+            }
+        }
         SideEffect {
             navStack = backStack
+            navigationOwner = owner
+            if (owner != null && iagentAccount.user.value?.id == owner) {
+                repeat(afterLoginIntents.size) { handleIntent(afterLoginIntents.removeFirst()) }
+            }
             while (pendingIntents.isNotEmpty()) {
                 handleIntent(pendingIntents.removeFirst())
             }
@@ -321,6 +420,25 @@ class RouteActivity : ComponentActivity() {
                 LocalASRState provides asr,
             ) {
                 TTSController()
+                val destination = IagentDestination.forScreen(backStack.lastOrNull())
+                IagentWorkbench(
+                    active = destination,
+                    onNavigate = { target ->
+                        if (target != destination) {
+                            val chat = backStack.indexOfLast { it is Screen.Chat }
+                            if (chat >= 0) {
+                                while (backStack.lastIndex > chat) backStack.removeLastOrNull()
+                            } else {
+                                backStack.add(startScreen)
+                            }
+                            when (target) {
+                                IagentDestination.CHAT -> Unit
+                                IagentDestination.STUDIO -> backStack.add(Screen.IagentStudio)
+                                IagentDestination.ACCOUNT -> backStack.add(Screen.IagentAccount)
+                            }
+                        }
+                    },
+                ) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -356,7 +474,9 @@ class RouteActivity : ComponentActivity() {
                                 metadata = NavDisplay.transitionSpec { fadeIn() togetherWith fadeOut() }
                                     + NavDisplay.popTransitionSpec { fadeIn() togetherWith fadeOut() }
                             ) { key ->
-                                ChatPage(
+                                if (owner == null) {
+                                    IagentGuestPage(studio = false) { signIn(IagentDestination.CHAT, prompt = it) }
+                                } else ChatPage(
                                     id = Uuid.parse(key.id),
                                     text = key.text,
                                     files = key.files.map { it.toUri() },
@@ -427,6 +547,35 @@ class RouteActivity : ComponentActivity() {
                                 SettingPage()
                             }
 
+                            entry<Screen.IagentAccount> {
+                                IagentAccountPage(
+                                    onSignIn = { signIn(IagentDestination.ACCOUNT) },
+                                    onRecharge = {
+                                        if (owner == null) signIn(IagentDestination.ACCOUNT, billing = true)
+                                        else backStack.add(Screen.IagentBilling)
+                                    },
+                                )
+                            }
+
+                            entry<Screen.IagentLogin> {
+                                IagentLoginPage(iagentAccount)
+                            }
+
+                            entry<Screen.IagentBilling> {
+                                if (owner != null) IagentBillingPage(iagentAccount, owner)
+                            }
+
+                            entry<Screen.IagentStudio>(
+                                metadata = NavDisplay.transitionSpec { fadeIn() togetherWith fadeOut() }
+                                    + NavDisplay.popTransitionSpec { fadeIn() togetherWith fadeOut() }
+                            ) {
+                                if (owner == null) {
+                                    IagentGuestPage(studio = true) { signIn(IagentDestination.STUDIO) }
+                                } else {
+                                    IagentStudioPage()
+                                }
+                            }
+
                             entry<Screen.Backup> {
                                 BackupPage()
                             }
@@ -481,12 +630,11 @@ class RouteActivity : ComponentActivity() {
                             }
 
                             entry<Screen.SettingProvider> {
-                                SettingProviderPage()
+                                IagentCatalogPage()
                             }
 
-                            entry<Screen.SettingProviderDetail> { key ->
-                                val id = Uuid.parse(key.providerId)
-                                SettingProviderDetailPage(id = id)
+                            entry<Screen.SettingProviderDetail> {
+                                IagentCatalogPage()
                             }
 
                             entry<Screen.SettingModels> {
@@ -511,11 +659,11 @@ class RouteActivity : ComponentActivity() {
                             }
 
                             entry<Screen.SettingMedia> {
-                                SettingMediaPage()
+                                IagentCatalogPage(mediaOnly = true)
                             }
 
-                            entry<Screen.SettingMediaProviderDetail> { key ->
-                                SettingMediaProviderDetailPage(id = Uuid.parse(key.providerId))
+                            entry<Screen.SettingMediaProviderDetail> {
+                                IagentCatalogPage(mediaOnly = true)
                             }
 
                             entry<Screen.SettingMcp> {
@@ -527,11 +675,11 @@ class RouteActivity : ComponentActivity() {
                             }
 
                             entry<Screen.SettingDonate> {
-                                SettingDonatePage()
+                                SettingAboutPage()
                             }
 
                             entry<Screen.QuickStart> {
-                                QuickStartPage()
+                                IagentCatalogPage()
                             }
 
                             entry<Screen.SettingFiles> {
@@ -563,7 +711,7 @@ class RouteActivity : ComponentActivity() {
                             }
 
                             entry<Screen.Skills> {
-                                SkillsPage()
+                                SkillsPage(catalogOnly = owner == null, onSignIn = { signIn(IagentDestination.ACCOUNT) })
                             }
 
                             entry<Screen.Workspaces> {
@@ -603,16 +751,6 @@ class RouteActivity : ComponentActivity() {
                             }
                         }
                     )
-                    if (BuildConfig.DEBUG) {
-                        Text(
-                            text = "[开发模式]",
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 4.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
-                        )
-                    }
                     AnimatedVisibility(
                         visible = migrationState is MigrationState.Migrating,
                         enter = fadeIn(),
@@ -649,6 +787,7 @@ class RouteActivity : ComponentActivity() {
                         state = toastState,
                         modifier = Modifier.align(Alignment.TopCenter),
                     )
+                }
                 }
             }
         }
@@ -709,6 +848,18 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object Setting : Screen
+
+    @Serializable
+    data object IagentAccount : Screen
+
+    @Serializable
+    data object IagentStudio : Screen
+
+    @Serializable
+    data object IagentLogin : Screen
+
+    @Serializable
+    data object IagentBilling : Screen
 
     @Serializable
     data object Backup : Screen

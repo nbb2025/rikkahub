@@ -35,6 +35,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.adaptive.currentWindowDpSize
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -47,6 +49,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -100,6 +103,7 @@ import me.rerere.rikkahub.ui.context.Navigator
 import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.ui.hooks.EditStateContent
 import me.rerere.rikkahub.ui.hooks.useEditState
+import me.rerere.rikkahub.ui.pages.iagent.IagentMark
 import me.rerere.rikkahub.utils.base64Decode
 import me.rerere.rikkahub.utils.navigateToChatPage
 import org.koin.androidx.compose.koinViewModel
@@ -363,6 +367,7 @@ private fun ChatPageContent(
                     drawerState = drawerState,
                     hazeState = hazeState,
                     showCapsuleBackground = listScrolledUnderTopBar,
+                    onOpenAssistants = { navController.navigate(me.rerere.rikkahub.Screen.Assistant) },
                     onNewChat = {
                         navigateToChatPage(navController)
                     },
@@ -525,6 +530,7 @@ private fun ChatPageContent(
                 onConversationSystemPromptChange = { newPrompt ->
                     vm.updateConversationSystemPrompt(newPrompt)
                 },
+                onPromptStarter = inputState::appendText,
             )
         }
 
@@ -642,6 +648,7 @@ private fun TopBar(
     bigScreen: Boolean,
     hazeState: HazeState,
     showCapsuleBackground: Boolean,
+    onOpenAssistants: () -> Unit,
     onNewChat: () -> Unit,
     onShowOverview: () -> Unit,
     onExport: () -> Unit,
@@ -669,40 +676,40 @@ private fun TopBar(
                             scope.launch { drawerState.open() }
                         }
                     ) {
-                        Icon(HugeIcons.Menu03, "Messages")
+                        Icon(HugeIcons.Menu03, stringResource(R.string.iagent_nav_conversations))
                     }
                 }
             }
         },
         title = {
-            val editTitleWarning = stringResource(R.string.chat_page_edit_title_warning)
             Surface(
                 onClick = {
                     if (conversation.messageNodes.isNotEmpty()) {
                         titleState.open(conversation.title)
                     } else {
-                        toaster.show(editTitleWarning, type = ToastType.Warning)
+                        onOpenAssistants()
                     }
                 },
                 color = Color.Transparent,
             ) {
-                Column {
-                    val provider = chatModel?.findProvider(providers = settings.providers, checkOverwrite = false)
-                    Text(
-                        text = conversation.title.ifBlank { stringResource(R.string.chat_page_new_chat) },
-                        maxLines = 1,
-                        style = MaterialTheme.typography.bodyMedium,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (chatModel != null && provider != null) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IagentMark(size = 34)
+                    Column {
                         Text(
-                            text = "${assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) }} / ${chatModel.displayName} (${provider.name})",
-                            overflow = TextOverflow.Ellipsis,
+                            text = conversation.title.ifBlank { stringResource(R.string.iagent_app_name) },
                             maxLines = 1,
-                            color = LocalContentColor.current.copy(0.65f),
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 8.sp,
-                            )
+                            style = MaterialTheme.typography.titleMediumEmphasized,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
                         )
                     }
                 }
@@ -720,7 +727,7 @@ private fun TopBar(
                         onNewChat()
                     }
                 ) {
-                    Icon(HugeIcons.MessageAdd01, "New Message")
+                    Icon(HugeIcons.MessageAdd01, stringResource(R.string.chat_page_new_chat))
                 }
                 ChatPageMenu(
                     enabled = conversation.messageNodes.isNotEmpty(),

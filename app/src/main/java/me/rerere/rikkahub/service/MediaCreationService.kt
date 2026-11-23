@@ -30,11 +30,13 @@ import me.rerere.mediagen.provider.MediaGenerationManager
 import me.rerere.mediagen.provider.MediaGenerationProviderSetting
 import me.rerere.mediagen.provider.capabilities
 import me.rerere.mediagen.provider.providers.MediaGenerationApiException
+import me.rerere.mediagen.provider.providers.iagent.IagentSubmissionUnknown
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.MEDIA_CREATION_NOTIFICATION_CHANNEL_ID
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.files.MediaCreationFiles
+import me.rerere.rikkahub.data.iagent.IagentMediaTransfer
 import me.rerere.rikkahub.data.remote.RemoteFileStore
 import me.rerere.rikkahub.data.model.MediaCreationAsset
 import me.rerere.rikkahub.data.model.MediaCreationOutput
@@ -56,6 +58,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.toJavaDuration
+import kotlin.time.toKotlinDuration
 import kotlin.uuid.Uuid
 
 private const val TAG = "MediaCreationService"
@@ -90,6 +93,7 @@ class MediaCreationService(
     private val repository: MediaCreationRepository,
     private val manager: MediaGenerationManager,
     private val remoteFileStore: RemoteFileStore,
+    private val iagentMediaTransfer: IagentMediaTransfer,
     private val okHttpClient: OkHttpClient,
 ) {
     private val jobs = ConcurrentHashMap<Uuid, Job>()
@@ -145,7 +149,7 @@ class MediaCreationService(
         var started = false
         try {
             val record = repository.updateRecord(recordId) { record ->
-                if (record.status == MediaCreationStatus.SUCCEEDED) {
+                if (record.status == MediaCreationStatus.SUCCEEDED || record.status == MediaCreationStatus.SUBMISSION_UNKNOWN) {
                     record
                 } else {
                     record.copy(
@@ -155,7 +159,7 @@ class MediaCreationService(
                     )
                 }
             }
-            if (record != null && record.status != MediaCreationStatus.SUCCEEDED) {
+            if (record?.status?.isActive == true) {
                 job.start()
                 started = true
             }
@@ -173,7 +177,12 @@ class MediaCreationService(
     suspend fun cancel(recordId: Uuid) = inAppScope {
         jobs[recordId]?.cancelAndJoin()
         repository.updateRecord(recordId) { record ->
-            if (record.status.isActive) record.copy(status = MediaCreationStatus.CANCELLED) else record
+            when {
+                !record.status.isActive -> record
+                record.status == MediaCreationStatus.RUNNING && record.taskId == null && isIagentRecord(record) ->
+                    record.withUnknownSubmission()
+                else -> record.copy(status = MediaCreationStatus.CANCELLED)
+            }
         }
     }
 
@@ -203,13 +212,15 @@ class MediaCreationService(
     fun resumePending() {
         appScope.launch {
             runCatching {
+                settingsStore.awaitLoaded()
                 repository.getActiveRecords().forEach { record ->
                     if (jobs.containsKey(record.id)) return@forEach
                     if (record.taskId != null) {
                         register(record.id, record.sessionId)?.start()
                     } else {
+                        val unknown = record.status == MediaCreationStatus.RUNNING && isIagentRecord(record)
                         repository.updateRecord(record.id) {
-                            it.copy(
+                            if (unknown) it.withUnknownSubmission() else it.copy(
                                 status = MediaCreationStatus.FAILED,
                                 error = context.getString(R.string.media_creation_error_interrupted),
                             )
@@ -248,7 +259,8 @@ class MediaCreationService(
             currentCoroutineContext().ensureActive()
             Log.e(TAG, "Generation $recordId failed", e)
             repository.updateRecord(recordId) {
-                it.copy(status = MediaCreationStatus.FAILED, error = e.toDisplayMessage())
+                if (e is IagentSubmissionUnknown && it.taskId == null) it.withUnknownSubmission()
+                else it.copy(status = MediaCreationStatus.FAILED, error = e.toDisplayMessage())
             }
         }
         repository.getRecord(recordId)?.let(::notifyFinished)
@@ -309,10 +321,15 @@ class MediaCreationService(
     ): MediaGenerationTask {
         val capabilities = setting.capabilities(record.kind)
             ?: error(context.getString(R.string.media_creation_error_kind_unsupported, setting.name))
+        if (setting is MediaGenerationProviderSetting.Iagent) iagentMediaTransfer.prepare(setting)
         val inputUrls = if (capabilities.requiresRemoteInputs && record.inputs.isNotEmpty()) {
-            check(remoteFileStore.isConfigured) { context.getString(R.string.media_creation_error_upload_required) }
             repository.updateRecord(record.id) { it.copy(status = MediaCreationStatus.PREPARING) }
-            record.inputs.map { remoteFileStore.upload(repository.resolve(it.path)).getOrThrow().url }
+            if (setting is MediaGenerationProviderSetting.Iagent) {
+                record.inputs.map { iagentMediaTransfer.upload(setting, model.modelId, repository.resolve(it.path), it.type) }
+            } else {
+                check(remoteFileStore.isConfigured) { context.getString(R.string.media_creation_error_upload_required) }
+                record.inputs.map { remoteFileStore.upload(repository.resolve(it.path)).getOrThrow().url }
+            }
         } else {
             record.inputs.map { repository.resolve(it.path).absolutePath }
         }
@@ -341,6 +358,7 @@ class MediaCreationService(
         val deadline = since + MAX_WAIT.toJavaDuration()
         var failures = 0
         while (true) {
+            var retryAfter = Duration.ZERO
             val result = manager.query(setting, model, taskId)
             currentCoroutineContext().ensureActive()
             result.onSuccess { task ->
@@ -351,9 +369,12 @@ class MediaCreationService(
                 failures++
                 Log.w(TAG, "Query $taskId failed ($failures)", error)
                 if (!error.isRetryable() || failures >= MAX_QUERY_FAILURES) throw error
+                retryAfter = (error as? MediaGenerationApiException)?.retryAfterSeconds?.coerceAtLeast(0)?.seconds
+                    ?: Duration.ZERO
             }
             check(Instant.now() < deadline) { context.getString(R.string.media_creation_error_timeout) }
-            delay(pollDelay(failures))
+            val remaining = java.time.Duration.between(Instant.now(), deadline).toKotlinDuration()
+            delay(maxOf(pollDelay(failures), retryAfter).coerceAtMost(remaining))
         }
     }
 
@@ -396,7 +417,7 @@ class MediaCreationService(
             when {
                 data != null -> file.writeBytes(data)
                 url != null -> {
-                    Log.i(TAG, "Downloading output $index (${output.mimeType}) from $url")
+                    Log.i(TAG, "Downloading output $index (${output.mimeType})")
                     download(setting, url, file)
                     Log.i(TAG, "Downloaded output $index: ${file.length()} bytes -> ${file.name}")
                 }
@@ -445,7 +466,8 @@ class MediaCreationService(
         while (true) {
             attempt++
             try {
-                downloadOnce(request, target)
+                val client = if (setting is MediaGenerationProviderSetting.Iagent) iagentMediaTransfer.downloadClient else okHttpClient
+                downloadOnce(client, request, target)
                 return
             } catch (e: Exception) {
                 currentCoroutineContext().ensureActive()
@@ -456,9 +478,9 @@ class MediaCreationService(
         }
     }
 
-    private suspend fun downloadOnce(request: Request, target: File) {
+    private suspend fun downloadOnce(client: OkHttpClient, request: Request, target: File) {
         val partial = File(target.parentFile, target.name + MediaCreationFiles.PARTIAL_SUFFIX)
-        val call = okHttpClient.newCall(request)
+        val call = client.newCall(request)
         try {
             coroutineScope {
                 // 断流时线程卡在 read() 里，走不到 ensureActive()：取消时关掉连接，让 read() 立刻抛出来
@@ -520,6 +542,16 @@ class MediaCreationService(
     }
 
     private suspend fun <T> inAppScope(block: suspend () -> T): T = appScope.async { block() }.await()
+
+    private fun isIagentRecord(record: MediaCreationRecord) =
+        settingsStore.settingsFlow.value.mediaGenerationProviders.any {
+            it.id == record.providerId && it is MediaGenerationProviderSetting.Iagent
+        }
+
+    private fun MediaCreationRecord.withUnknownSubmission() = copy(
+        status = MediaCreationStatus.SUBMISSION_UNKNOWN,
+        error = context.getString(R.string.iagent_submission_unknown),
+    )
 
     companion object {
         private const val OUTPUT_PREFIX = "out_"

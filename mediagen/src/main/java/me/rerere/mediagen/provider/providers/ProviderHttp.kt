@@ -40,6 +40,7 @@ internal suspend fun OkHttpClient.executeJson(request: Request, provider: String
                     statusCode = response.code,
                     code = error?.string("code") ?: body.string("code") ?: error?.string("type"),
                     message = error?.string("message") ?: body.string("message") ?: text,
+                    retryAfterSeconds = response.header("Retry-After")?.toLongOrNull(),
                 )
             }
             body
@@ -72,6 +73,7 @@ class MediaGenerationApiException(
     val statusCode: Int,
     val code: String?,
     override val message: String,
+    val retryAfterSeconds: Long? = null,
 ) : Exception(
     "$provider media generation failed ($statusCode${
         code?.let { ", $it" }.orEmpty()

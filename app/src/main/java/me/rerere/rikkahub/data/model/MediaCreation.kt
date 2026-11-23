@@ -1,6 +1,8 @@
 package me.rerere.rikkahub.data.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import me.rerere.mediagen.model.ImageRole
 import me.rerere.mediagen.model.MediaGenerationInput
 import me.rerere.mediagen.model.MediaGenerationRequest
@@ -38,12 +40,25 @@ data class MediaCreationDraft(
     val assets: List<MediaCreationAsset> = emptyList(),
     val params: MediaCreationParams = MediaCreationParams(),
     val editingNodeId: Uuid? = null,
+    val kind: MediaKind? = null,
+    val otherMode: MediaCreationModeDraft? = null,
+)
+
+@Serializable
+data class MediaCreationModeDraft(
+    val kind: MediaKind,
+    val modelId: Uuid?,
+    val prompt: String,
+    val assets: List<MediaCreationAsset>,
+    val params: MediaCreationParams,
+    val editingNodeId: Uuid? = null,
 )
 
 @Serializable
 enum class MediaCreationAssetType {
     IMAGE,
     VIDEO,
+    AUDIO,
 }
 
 /**
@@ -69,6 +84,16 @@ data class MediaCreationParams(
     val watermark: Boolean? = null,
     val seed: Long? = null,
     val promptEnhancement: Boolean? = null,
+    val iagentImage: IagentImageOptions? = null,
+)
+
+@Serializable
+data class IagentImageOptions(
+    val quality: String? = null,
+    val format: String? = null,
+    val complexity: String? = null,
+    val frames: Int? = null,
+    val intervalMs: Int? = null,
 )
 
 /**
@@ -100,6 +125,7 @@ enum class MediaCreationStatus {
     DOWNLOADING,
     SUCCEEDED,
     FAILED,
+    SUBMISSION_UNKNOWN,
     CANCELLED;
 
     val isActive: Boolean
@@ -166,6 +192,7 @@ fun MediaCreationParams.supportedBy(capabilities: MediaGenerationCapabilities): 
         watermark = watermark.takeIfSupported(MediaGenerationParameter.WATERMARK),
         seed = seed.takeIfSupported(MediaGenerationParameter.SEED),
         promptEnhancement = promptEnhancement.takeIfSupported(MediaGenerationParameter.PROMPT_ENHANCEMENT),
+        iagentImage = iagentImage.takeIf { capabilities.iagentImageOptions },
     )
 }
 
@@ -190,6 +217,7 @@ fun MediaCreationParams.withRequired(
         seed = seed.orRequired(MediaGenerationParameter.SEED, defaults.seed),
         promptEnhancement = promptEnhancement
             .orRequired(MediaGenerationParameter.PROMPT_ENHANCEMENT, defaults.promptEnhancement),
+        iagentImage = iagentImage.takeIf { capabilities.iagentImageOptions },
     )
 }
 
@@ -207,6 +235,7 @@ fun List<MediaCreationAsset>.supportedBy(capabilities: MediaGenerationCapabiliti
             }
 
             MediaCreationAssetType.VIDEO -> asset.takeIf { capabilities.videoInput }
+            MediaCreationAssetType.AUDIO -> asset.takeIf { capabilities.audioInput }
         }
     }
     return coerced.filterIndexed { index, asset ->
@@ -221,7 +250,7 @@ fun List<MediaCreationAsset>.supportedBy(capabilities: MediaGenerationCapabiliti
  */
 fun List<MediaCreationAsset>.mixesFramesWithReferences(capabilities: MediaGenerationCapabilities): Boolean {
     if (!capabilities.framesExcludeReferences) return false
-    val (references, frames) = partition { it.type == MediaCreationAssetType.VIDEO || it.role == ImageRole.REFERENCE }
+    val (references, frames) = partition { it.type != MediaCreationAssetType.IMAGE || it.role == ImageRole.REFERENCE }
     return references.isNotEmpty() && frames.isNotEmpty()
 }
 
@@ -251,6 +280,7 @@ fun buildMediaGenerationRequest(
             when (asset.type) {
                 MediaCreationAssetType.IMAGE -> MediaGenerationInput.Image(url = url, role = asset.role)
                 MediaCreationAssetType.VIDEO -> MediaGenerationInput.Video(url = url)
+                MediaCreationAssetType.AUDIO -> MediaGenerationInput.Audio(url = url)
             }
         },
         count = supported.count,
@@ -261,6 +291,15 @@ fun buildMediaGenerationRequest(
         watermark = supported.watermark,
         seed = supported.seed,
         promptEnhancement = supported.promptEnhancement,
+        extraParameters = buildJsonObject {
+            supported.iagentImage?.let { options ->
+                options.quality?.let { put("quality", it) }
+                options.format?.let { put("output_format", it) }
+                options.complexity?.let { put("complexity", it) }
+                options.frames?.let { put("frame_count", it) }
+                options.intervalMs?.let { put("frame_duration_ms", it) }
+            }
+        },
     )
 }
 

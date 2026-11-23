@@ -30,7 +30,7 @@ import kotlin.uuid.Uuid
 data class Settings(
     @Transient
     val init: Boolean = false,
-    val dynamicColor: Boolean = true,
+    val dynamicColor: Boolean = false,
     val themeId: String = PresetThemes[0].id,
     val customThemes: List<CustomTheme> = emptyList(),
     val developerMode: Boolean = false,
@@ -59,7 +59,7 @@ data class Settings(
     val ocrModelId: Uuid = Uuid.random(),
     val ocrPrompt: String = DEFAULT_OCR_PROMPT,
     val assistantId: Uuid = DEFAULT_ASSISTANT_ID,
-    val providers: List<ProviderSetting> = DEFAULT_PROVIDERS,
+    val providers: List<ProviderSetting> = emptyList(),
     val assistants: List<Assistant> = DEFAULT_ASSISTANTS,
     val assistantTags: List<Tag> = emptyList(),
     val searchServices: List<SearchServiceOptions> = listOf(SearchServiceOptions.DEFAULT),

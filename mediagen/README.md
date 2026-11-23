@@ -1,5 +1,7 @@
 # mediagen 抽象层
 
+iAgent Android uses the iAgent provider adapter in this module for site-managed image and video models. See [the Android guide](../docs/android.md) for application behavior.
+
 `mediagen` 是独立于聊天 `Provider` 的媒体生成抽象层，图像和视频共用同一套模型和供应商接口：
 `MediaGenerationProviderSetting`（sealed class，带 `id` / `name`，可序列化保存多份）、无状态的
 `MediaGenerationProvider` 和按 setting 类型分发的 `MediaGenerationManager`。

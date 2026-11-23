@@ -44,6 +44,34 @@ sealed class MediaGenerationProviderSetting {
     ): MediaGenerationProviderSetting
 
     @Serializable
+    @SerialName("iagent")
+    data class Iagent(
+        override val id: Uuid,
+        override val name: String,
+        val keyReference: String,
+        val protocol: IagentMediaProtocol,
+        override val models: List<MediaGenerationModel>,
+    ) : MediaGenerationProviderSetting() {
+        override val apiKey get() = keyReference
+        override val baseUrl get() = ORIGIN
+        override val supportedKinds get() = setOf(protocol.kind)
+
+        override fun downloadHeaders(url: String) = sameOriginBearer(url)
+
+        override fun copyProvider(
+            id: Uuid,
+            name: String,
+            apiKey: String,
+            baseUrl: String,
+            models: List<MediaGenerationModel>,
+        ) = copy(id = id, name = name, models = models)
+
+        companion object {
+            const val ORIGIN = "https://ai.iagent.dev"
+        }
+    }
+
+    @Serializable
     @SerialName("openai")
     data class OpenAI(
         override val id: Uuid = Uuid.random(),

@@ -1,37 +1,38 @@
 package me.rerere.rikkahub.data.datastore
 
+import me.rerere.mediagen.provider.MediaGenerationProviderSetting
+import me.rerere.rikkahub.data.iagent.isIagentManaged
+import me.rerere.rikkahub.data.iagent.isIagentReviewModel
+
 /** 读盘后和每次修改后都要过一遍，保证内存里的设置始终是规整的。 */
 internal fun Settings.normalized(): Settings =
     withBuiltInDefaults().withoutInvalidReferences().withValuesInRange()
 
-// 补齐缺失的内置提供商/助手/TTS，内置提供商和推荐提供商的描述信息始终以代码里的为准
-internal fun Settings.withBuiltInDefaults(): Settings {
-    var providers = this.providers.ifEmpty { DEFAULT_PROVIDERS }.toMutableList()
-    DEFAULT_PROVIDERS.forEach { defaultProvider ->
-        if (providers.none { it.id == defaultProvider.id }) {
-            providers.add(defaultProvider.copyProvider())
+internal fun Settings.normalizedForIagent(): Settings = withIagentModels().normalized()
+
+private fun Settings.withIagentModels(): Settings {
+    val providers = providers.filter { it.isIagentManaged() }.mapNotNull { provider ->
+        val allowed = provider.models.filterNot { isIagentReviewModel(it.modelId, it.displayName) }.map { model ->
+            if (model.providerOverwrite == null) model else model.copy(providerOverwrite = null)
         }
+        if (allowed.isEmpty()) null else provider.copyProvider(enabled = true, models = allowed)
     }
-    providers = providers.map { provider ->
-        val defaultProvider = DEFAULT_PROVIDERS.find { it.id == provider.id }
-        val recommendedProvider = RECOMMENDED_PROVIDERS.find { it.id == provider.id }
-        when {
-            defaultProvider != null -> provider.copyProvider(
-                builtIn = defaultProvider.builtIn,
-                description = defaultProvider.description,
-                shortDescription = defaultProvider.shortDescription,
-            )
-
-            // 描述不落盘，从推荐列表添加的提供商读盘后按 id 补回
-            recommendedProvider != null -> provider.copyProvider(
-                description = recommendedProvider.description,
-                shortDescription = recommendedProvider.shortDescription,
-            )
-
-            else -> provider
+    val mediaProviders = mediaGenerationProviders.filterIsInstance<MediaGenerationProviderSetting.Iagent>()
+        .mapNotNull { provider ->
+            val allowed = provider.models.filterNot { isIagentReviewModel(it.modelId, it.displayName.orEmpty()) }
+            if (allowed.isEmpty()) null else provider.copy(models = allowed)
         }
-    }.toMutableList()
-    // 内置助手可以删除，只在一个都不剩时补回，不按 id 逐个补齐
+    return copy(
+        providers = providers,
+        mediaGenerationProviders = mediaProviders,
+        chatModelId = chatModelId.takeIf { providers.findModelById(it) != null }
+            ?: providers.firstOrNull()?.models?.firstOrNull()?.id
+            ?: chatModelId,
+    )
+}
+
+// 内置助手和设备 TTS 仍由客户端提供。
+internal fun Settings.withBuiltInDefaults(): Settings {
     val assistants = this.assistants.ifEmpty { DEFAULT_ASSISTANTS }
     val ttsProviders = this.ttsProviders.ifEmpty { DEFAULT_TTS_PROVIDERS }.toMutableList()
     DEFAULT_TTS_PROVIDERS.forEach { defaultTTSProvider ->
@@ -40,7 +41,6 @@ internal fun Settings.withBuiltInDefaults(): Settings {
         }
     }
     return copy(
-        providers = providers,
         assistants = assistants,
         ttsProviders = ttsProviders,
     )

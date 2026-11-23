@@ -14,10 +14,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.WEB_SERVER_NOTIFICATION_CHANNEL_ID
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.iagent.IagentAccount
 import me.rerere.rikkahub.web.WebServerManager
 import org.koin.android.ext.android.inject
 
@@ -35,9 +37,11 @@ class WebServerService : Service() {
 
     private val webServerManager: WebServerManager by inject()
     private val settingsStore: SettingsStore by inject()
+    private val account: IagentAccount by inject()
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var stateObserverJob: Job? = null
+    private var signOutObserver: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -50,8 +54,10 @@ class WebServerService : Service() {
                     stopSelf()
                     return START_NOT_STICKY
                 }
-                startObservingState()
-                webServerManager.start(port = port, localhostOnly = localhostOnly)
+                if (observeAccount()) {
+                    startObservingState()
+                    webServerManager.start(port = port, localhostOnly = localhostOnly)
+                }
             }
 
             ACTION_STOP -> {
@@ -70,7 +76,7 @@ class WebServerService : Service() {
                 }
                 serviceScope.launch {
                     val settings = settingsStore.awaitLoaded()
-                    if (settings.webServerEnabled) {
+                    if (settings.webServerEnabled && observeAccount()) {
                         startObservingState()
                         webServerManager.start(
                             port = settings.webServerPort,
@@ -83,6 +89,22 @@ class WebServerService : Service() {
             }
         }
         return START_NOT_STICKY
+    }
+
+    private fun observeAccount(): Boolean {
+        if (account.user.value == null) {
+            stopSelf()
+            return false
+        }
+        if (signOutObserver == null) {
+            signOutObserver = serviceScope.launch {
+                account.user.first { it == null }
+                webServerManager.stop()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
+        }
+        return true
     }
 
     override fun onDestroy() {

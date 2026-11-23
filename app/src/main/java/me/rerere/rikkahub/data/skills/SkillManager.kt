@@ -174,7 +174,12 @@ class SkillManager(
         }
     }
 
-    fun saveSkillFileBytesAtomically(skillName: String, files: Map<String, ByteArray>): Boolean {
+    @Synchronized
+    fun saveSkillFileBytesAtomically(
+        skillName: String,
+        files: Map<String, ByteArray>,
+        replaceExisting: Boolean = true,
+    ): Boolean {
         val skillMd = files["SKILL.md"] ?: return false
         // 目录名必须和 SKILL.md 的 name 一致，否则之后按名字找不到目录
         if (SkillValidator.validate(skillMd.toString(Charsets.UTF_8)).getOrNull() != skillName) {
@@ -183,6 +188,7 @@ class SkillManager(
         }
         val skillsDir = getSkillsDir()
         val targetDir = resolveSkillDir(skillName) ?: return false
+        if (!replaceExisting && (targetDir.exists() || findSkill(skillName) != null)) return false
         val stagingDir = createTempSkillDir(skillsDir, skillName, "staging") ?: return false
         var backupDir: File? = null
 

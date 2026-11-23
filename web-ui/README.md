@@ -1,5 +1,7 @@
 # Welcome to React Router!
 
+This optional local web interface ships with iAgent Android. The public iAgent account and checkout site is [ai.iagent.dev](https://ai.iagent.dev/).
+
 A modern, production-ready template for building full-stack React applications using React Router.
 
 [![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/remix-run/react-router-templates/tree/main/default)

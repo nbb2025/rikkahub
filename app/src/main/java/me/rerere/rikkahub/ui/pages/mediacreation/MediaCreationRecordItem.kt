@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -70,6 +72,7 @@ import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Download01
 import me.rerere.hugeicons.stroke.ImageAdd01
 import me.rerere.hugeicons.stroke.ImageToVideo
+import me.rerere.hugeicons.stroke.MusicNote03
 import me.rerere.hugeicons.stroke.MoreVertical
 import me.rerere.hugeicons.stroke.PencilEdit01
 import me.rerere.hugeicons.stroke.Refresh
@@ -87,7 +90,6 @@ import me.rerere.rikkahub.data.model.MediaCreationStatus
 import me.rerere.rikkahub.ui.components.ui.ImagePreviewDialog
 import me.rerere.rikkahub.ui.components.ui.VideoPlayerDialog
 import me.rerere.rikkahub.ui.context.LocalToaster
-import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.toMessageTimeString
 import me.rerere.rikkahub.utils.writeClipboardText
 import me.rerere.ui.components.RikkaConfirmDialog
@@ -139,8 +141,10 @@ internal fun MediaCreationRecordItem(
             ),
         // 内容离边 16dp，里面的小块圆角 12dp，和外圈同心
         shape = MaterialTheme.shapes.extraLarge,
-        colors = CustomColors.cardColors,
-        border = if (selected ?: editing) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = if (selected ?: editing) {
+            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+        } else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Box {
             Column(
@@ -273,6 +277,16 @@ private fun InputThumbnail(
     showRole: Boolean,
     onPreview: (MediaPreview) -> Unit,
 ) {
+    if (asset.type == MediaCreationAssetType.AUDIO) {
+        Box(
+            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(HugeIcons.MusicNote03, stringResource(R.string.audio))
+        }
+        return
+    }
     val isVideo = asset.type == MediaCreationAssetType.VIDEO
     Box(
         modifier = Modifier
@@ -363,11 +377,7 @@ private fun RecordFailure(record: MediaCreationRecord) {
     }
 }
 
-private val SingleOutputMaxWidth = 200.dp
-private val OutputMaxHeight = 160.dp
-
-// 多项产出时一行摆几格
-private const val OUTPUT_COLUMNS = 3
+private const val OUTPUT_COLUMNS = 2
 
 @Composable
 private fun RecordOutputs(
@@ -377,12 +387,12 @@ private fun RecordOutputs(
 ) {
     val outputs = record.outputs
     if (outputs.size == 1) {
-        // 不铺满整行：横图受宽度限制，竖图受高度限制，免得一条记录占掉大半屏
         OutputTile(
             output = outputs.single(),
             vm = vm,
             onPreview = onPreview,
-            modifier = Modifier.sizeIn(maxWidth = SingleOutputMaxWidth, maxHeight = OutputMaxHeight),
+            modifier = Modifier.fillMaxWidth(),
+            single = true,
         )
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -395,7 +405,7 @@ private fun RecordOutputs(
                                 output = output,
                                 vm = vm,
                                 onPreview = onPreview,
-                                modifier = Modifier.heightIn(max = OutputMaxHeight),
+                                modifier = Modifier.fillMaxWidth(),
                             )
                         }
                     }
@@ -420,12 +430,13 @@ private fun OutputTile(
     vm: MediaCreationVM,
     onPreview: (MediaPreview) -> Unit,
     modifier: Modifier = Modifier,
+    single: Boolean = false,
 ) {
     val file = remember(output.path) { vm.resolve(output.path) }
     Box(
         modifier = modifier
-            .aspectRatio(output.aspectRatio())
-            .clip(RoundedCornerShape(12.dp))
+            .aspectRatio(if (single) output.aspectRatio().coerceAtLeast(1.08f) else 1f)
+            .clip(RoundedCornerShape(17.dp))
             .clickable { onPreview(MediaPreview(file, output.isVideo)) },
     ) {
         MediaThumbnail(
@@ -433,6 +444,7 @@ private fun OutputTile(
             isVideo = output.isVideo,
             poster = output.posterPath?.let(vm::resolve),
             modifier = Modifier.fillMaxSize(),
+            contentScale = if (single) ContentScale.Fit else ContentScale.Crop,
         )
         output.durationSeconds?.takeIf { output.isVideo }?.let { duration ->
             Text(
@@ -484,7 +496,7 @@ private fun OutputMenu(
         Box(
             modifier = Modifier
                 .padding(6.dp)
-                .size(28.dp)
+                .size(44.dp)
                 .clip(CircleShape)
                 .background(Color.Black.copy(alpha = 0.45f))
                 .clickable { expanded = true },
@@ -570,6 +582,8 @@ private fun RecordActions(
                     // 已经提交给服务端的任务撤不回来，先说明清楚
                     if (record.taskId != null) confirmCancel = true else vm.cancel(record)
                 }
+
+                record.status == MediaCreationStatus.SUBMISSION_UNKNOWN -> Unit
 
                 record.status == MediaCreationStatus.SUCCEEDED -> {
                     // 只有一项产出时把最常用的去向直接摆出来，多项产出走各自的菜单

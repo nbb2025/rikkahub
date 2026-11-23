@@ -50,11 +50,14 @@ data class MediaGenerationCapabilities(
     val requiresPrompt: Boolean = false,
     /** 素材必须是公网地址；为 false 时图片输入可以直接传本地文件路径。 */
     val requiresRemoteInputs: Boolean = false,
+    val audioInput: Boolean = false,
+    val iagentImageOptions: Boolean = false,
 )
 
 /** 适配器没有实现 [kind] 时返回 null。 */
 fun MediaGenerationProviderSetting.capabilities(kind: MediaKind): MediaGenerationCapabilities? =
     when (this) {
+        is MediaGenerationProviderSetting.Iagent -> if (kind == protocol.kind) iagentCapabilities(protocol) else null
         is MediaGenerationProviderSetting.OpenAI -> when (kind) {
             MediaKind.IMAGE -> OPENAI_IMAGE
             MediaKind.VIDEO -> null
@@ -84,6 +87,52 @@ fun MediaGenerationProviderSetting.capabilities(kind: MediaKind): MediaGeneratio
 // 图像接口不区分图片角色，统一当作参考图
 private val REFERENCE_ONLY = setOf(ImageRole.REFERENCE)
 private val ALL_IMAGE_ROLES = ImageRole.entries.toSet()
+
+private val VIDEO_PARAMETERS = setOf(
+    MediaGenerationParameter.RESOLUTION,
+    MediaGenerationParameter.ASPECT_RATIO,
+    MediaGenerationParameter.DURATION,
+)
+
+private fun iagentCapabilities(protocol: IagentMediaProtocol): MediaGenerationCapabilities = when (protocol) {
+    IagentMediaProtocol.OPENAI_IMAGE -> OPENAI_IMAGE.copy(iagentImageOptions = true)
+    IagentMediaProtocol.GEMINI_IMAGE -> OPENAI_IMAGE.copy(
+        parameters = setOf(MediaGenerationParameter.RESOLUTION, MediaGenerationParameter.ASPECT_RATIO),
+    )
+    IagentMediaProtocol.GROK_IMAGE, IagentMediaProtocol.GROK_CHAT_IMAGE -> OPENAI_IMAGE.copy(
+        parameters = setOf(MediaGenerationParameter.RESOLUTION),
+        imageRoles = emptySet(),
+    )
+    IagentMediaProtocol.GROK_EDIT -> OPENAI_IMAGE.copy(parameters = setOf(MediaGenerationParameter.RESOLUTION))
+    IagentMediaProtocol.WAN -> ALIYUN_VIDEO.copy(audioInput = true, requiresPrompt = true)
+    IagentMediaProtocol.VIDEO_LT, IagentMediaProtocol.VIDEO_LT_FRAMES, IagentMediaProtocol.VIDEO_LT_H3 ->
+        MediaGenerationCapabilities(
+            parameters = setOf(MediaGenerationParameter.ASPECT_RATIO, MediaGenerationParameter.DURATION) +
+                if (protocol ==
+                    IagentMediaProtocol.VIDEO_LT_H3) {
+                    setOf(MediaGenerationParameter.WATERMARK)
+                } else {
+                    emptySet()
+                },
+            imageRoles = if (protocol == IagentMediaProtocol.VIDEO_LT_FRAMES) ALL_IMAGE_ROLES else REFERENCE_ONLY,
+            videoInput = protocol != IagentMediaProtocol.VIDEO_LT_H3,
+            audioInput = true,
+            framesExcludeReferences = true,
+            requiresPrompt = true,
+            requiresRemoteInputs = true,
+        )
+    IagentMediaProtocol.SEEDANCE, IagentMediaProtocol.GROK_VIDEO, IagentMediaProtocol.GROK_VIDEO_WITH_IMAGES ->
+        MediaGenerationCapabilities(
+            parameters = VIDEO_PARAMETERS,
+            imageRoles = when (protocol) {
+                IagentMediaProtocol.SEEDANCE -> ALL_IMAGE_ROLES
+                IagentMediaProtocol.GROK_VIDEO_WITH_IMAGES -> setOf(ImageRole.FIRST_FRAME, ImageRole.REFERENCE)
+                else -> emptySet()
+            },
+            framesExcludeReferences = true,
+            requiresPrompt = true,
+        )
+}
 
 private val OPENAI_IMAGE = MediaGenerationCapabilities(
     parameters = setOf(MediaGenerationParameter.COUNT, MediaGenerationParameter.RESOLUTION),

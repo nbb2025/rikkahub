@@ -33,6 +33,8 @@ class MediaGenerationCapabilitiesTest {
     private fun buildBody(setting: MediaGenerationProviderSetting, kind: MediaKind, request: MediaGenerationRequest) {
         val model = MediaGenerationModel(modelId = "model", kind = kind)
         when (setting) {
+            is MediaGenerationProviderSetting.Iagent -> error("Covered by IagentMediaProviderTest")
+
             is MediaGenerationProviderSetting.OpenAI ->
                 OpenAIMediaGenerationProvider(client).buildGenerationBody(setting, model, request)
 

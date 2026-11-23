@@ -2,8 +2,8 @@
 
 ## Project Overview
 
-RikkaHub is a native Android LLM chat client that supports switching between different AI providers
-for conversations.
+iAgent is a native Android client for [ai.iagent.dev](https://ai.iagent.dev/), based on RikkaHub.
+Use `docs/android.md` for setup, interface behavior and the GitHub build workflow.
 Built with Jetpack Compose, Kotlin, and follows Material 3 Expressive (MD3 Expressive) design language.
 
 ## Design Language

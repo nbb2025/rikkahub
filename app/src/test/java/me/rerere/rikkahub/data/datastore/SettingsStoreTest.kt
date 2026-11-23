@@ -237,7 +237,7 @@ class SettingsStoreTest {
         }
 
         val settings = store.settingsFlow.value
-        assertEquals(DEFAULT_PROVIDERS.map { it.id }, settings.providers.map { it.id })
+        assertTrue(settings.providers.isEmpty())
         assertEquals(emptyList<Uuid>(), settings.favoriteModels)
         assertEquals(0, settings.searchServiceSelected)
     }

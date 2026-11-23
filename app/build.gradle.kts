@@ -1,7 +1,6 @@
 import com.android.build.api.dsl.Packaging
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
-import java.io.FileInputStream
 import java.util.Properties
 
 plugins {
@@ -9,10 +8,13 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
-    alias(libs.plugins.google.services)
-    alias(libs.plugins.firebase.crashlytics)
     alias(libs.plugins.baselineprofile)
 }
+
+val buildUniversalApk = !providers.gradleProperty("iagentSplitOnly").isPresent
+val buildingAppBundle = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) }
+val signingStoreFile = providers.environmentVariable("IAGENT_SIGNING_STORE_FILE")
+val signingPassword = providers.environmentVariable("IAGENT_SIGNING_PASSWORD")
 
 android {
     namespace = "me.rerere.rikkahub"
@@ -23,28 +25,26 @@ android {
     }
 
     defaultConfig {
-        applicationId = "me.rerere.rikkahub"
+        applicationId = "dev.iagent.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 198
-        versionName = "3.3.1"
+        versionCode = 3
+        versionName = "0.3.0"
+        buildConfigField("boolean", "ENABLE_UPDATE_CHECKS", "false")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            if (buildUniversalApk || buildingAppBundle) abiFilters += listOf("arm64-v8a", "x86_64")
         }
     }
 
     splits {
         abi {
-            // AppBundle tasks usually contain "bundle" in their name
-            //noinspection WrongGradleMethod
-            val isBuildingBundle = gradle.startParameter.taskNames.any { it.lowercase().contains("bundle") }
-            isEnable = !isBuildingBundle
+            isEnable = !buildingAppBundle
             reset()
             include("arm64-v8a", "x86_64")
-            isUniversalApk = true
+            isUniversalApk = buildUniversalApk
         }
     }
 
@@ -52,23 +52,22 @@ android {
         create("release") {
             val localProperties = Properties()
             val localPropertiesFile = rootProject.file("local.properties")
-
             if (localPropertiesFile.exists()) {
-                localProperties.load(FileInputStream(localPropertiesFile))
-
-                val storeFilePath = localProperties.getProperty("storeFile")
-                val storePasswordValue = localProperties.getProperty("storePassword")
-                val keyAliasValue = localProperties.getProperty("keyAlias")
-                val keyPasswordValue = localProperties.getProperty("keyPassword")
-
-                if (storeFilePath != null && storePasswordValue != null &&
-                    keyAliasValue != null && keyPasswordValue != null
-                ) {
-                    storeFile = file(storeFilePath)
-                    storePassword = storePasswordValue
-                    keyAlias = keyAliasValue
-                    keyPassword = keyPasswordValue
-                }
+                localPropertiesFile.inputStream().use(localProperties::load)
+            }
+            val environmentFile = signingStoreFile.orNull
+            val environmentPassword = signingPassword.orNull
+            val storeFilePath = environmentFile ?: localProperties.getProperty("storeFile")
+            val storePasswordValue = environmentPassword ?: localProperties.getProperty("storePassword")
+            val keyAliasValue = if (environmentFile != null) "iagent" else localProperties.getProperty("keyAlias")
+            val keyPasswordValue = environmentPassword ?: localProperties.getProperty("keyPassword")
+            if (storeFilePath != null && storePasswordValue != null && keyAliasValue != null &&
+                keyPasswordValue != null) {
+                storeFile = file(storeFilePath)
+                storePassword = storePasswordValue
+                keyAlias = keyAliasValue
+                keyPassword = keyPasswordValue
+                if (environmentFile != null) storeType = "pkcs12"
             }
         }
     }
@@ -76,6 +75,9 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             optimization {
                 enable = true
             }
@@ -221,9 +223,6 @@ dependencies {
     implementation(libs.androidx.material3.adaptive.navigation3)
 
     // Firebase
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.analytics)
-    implementation(libs.firebase.crashlytics)
 
     // DataStore
     implementation(libs.androidx.datastore.preferences)
@@ -251,8 +250,6 @@ dependencies {
     // okhttp
     implementation(libs.okhttp)
     implementation(libs.okhttp.sse)
-    implementation(libs.retrofit)
-    implementation(libs.retrofit.serialization.json)
 
     // ktor client
     implementation(libs.ktor.client.core)

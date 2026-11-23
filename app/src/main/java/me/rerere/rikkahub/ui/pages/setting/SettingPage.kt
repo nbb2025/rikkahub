@@ -72,7 +72,7 @@ import me.rerere.hugeicons.stroke.Tiktok
 import me.rerere.hugeicons.stroke.WavingHand01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
-import me.rerere.rikkahub.data.datastore.isNotConfigured
+import me.rerere.rikkahub.data.iagent.IAGENT_REPOSITORY
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
@@ -101,36 +101,9 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val navController = LocalNavController.current
     val settings by vm.settings.collectAsStateWithLifecycle()
-    val launchCount by vm.launchCount.collectAsStateWithLifecycle()
     val filesManager: FilesManager = koinInject()
     val localNetworkPermission = rememberLocalNetworkPermissionState()
     val notificationPermission = rememberNotificationPermissionState()
-
-    if (!settings.init && launchCount > 100 && (launchCount - settings.sponsorAlertDismissedAt) >= 50) {
-        AlertDialog(
-            onDismissRequest = {
-                vm.updateSettings { it.copy(sponsorAlertDismissedAt = launchCount) }
-            },
-            icon = { Icon(HugeIcons.WavingHand01, null) },
-            title = { Text(stringResource(R.string.setting_page_sponsor_alert_title)) },
-            text = { Text(stringResource(R.string.setting_page_sponsor_alert_desc)) },
-            confirmButton = {
-                Button(onClick = {
-                    vm.updateSettings { it.copy(sponsorAlertDismissedAt = launchCount) }
-                    navController.navigate(Screen.SettingDonate)
-                }) {
-                    Text(stringResource(R.string.setting_page_sponsor_alert_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    vm.updateSettings { it.copy(sponsorAlertDismissedAt = launchCount) }
-                }) {
-                    Text(stringResource(R.string.setting_page_sponsor_alert_dismiss))
-                }
-            },
-        )
-    }
 
     Scaffold(
         topBar = {
@@ -153,14 +126,6 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
             contentPadding = innerPadding + PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (settings.isNotConfigured()) {
-                item {
-                    ProviderConfigWarningCard(
-                        onClick = { navController.navigate(Screen.QuickStart) }
-                    )
-                }
-            }
-
             if (localNetworkPermission?.allRequiredPermissionsGranted == false) {
                 item("localNetworkPermission") {
                     LocalNetworkPermissionCard(permissionState = localNetworkPermission)
@@ -247,8 +212,8 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                     item(
                         onClick = { navController.navigate(Screen.SettingProvider) },
                         leadingContent = { CardGroupIcon(HugeIcons.Brain02, containerColor = containerColor, contentColor = contentColor) },
-                        supportingContent = { Text(stringResource(R.string.setting_page_providers_desc)) },
-                        headlineContent = { Text(stringResource(R.string.setting_page_providers)) },
+                        supportingContent = { Text(stringResource(R.string.iagent_catalog_hint)) },
+                        headlineContent = { Text(stringResource(R.string.iagent_catalog_title)) },
                     )
                     item(
                         onClick = { navController.navigate(Screen.SettingSearch) },
@@ -265,8 +230,8 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                     item(
                         onClick = { navController.navigate(Screen.SettingMedia) },
                         leadingContent = { CardGroupIcon(HugeIcons.Image02, containerColor = containerColor, contentColor = contentColor) },
-                        supportingContent = { Text(stringResource(R.string.setting_page_media_desc)) },
-                        headlineContent = { Text(stringResource(R.string.setting_page_media)) },
+                        supportingContent = { Text(stringResource(R.string.iagent_catalog_hint)) },
+                        headlineContent = { Text(stringResource(R.string.iagent_catalog_media)) },
                     )
                     item(
                         onClick = { navController.navigate(Screen.SettingMcp) },
@@ -333,56 +298,10 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         onClick = { navController.navigate(Screen.SettingAbout) },
                         leadingContent = { CardGroupIcon(HugeIcons.Clapping01, containerColor = containerColor, contentColor = contentColor) },
                         supportingContent = { Text(stringResource(R.string.setting_page_about_desc)) },
-                        trailingContent = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                var showQQGroupSheet by remember { mutableStateOf(false) }
-                                IconButton(
-                                    onClick = { showQQGroupSheet = true }
-                                ) {
-                                    Icon(
-                                        imageVector = TencentQQIcon,
-                                        contentDescription = "QQ",
-                                        tint = MaterialTheme.colorScheme.secondary
-                                    )
-                                }
-                                if (showQQGroupSheet) {
-                                    QQGroupBottomSheet(
-                                        onDismiss = { showQQGroupSheet = false }
-                                    )
-                                }
-                                IconButton(
-                                    onClick = {
-                                        context.openUrl("https://discord.gg/9weBqxe5c4")
-                                    }
-                                ) {
-                                    Icon(
-                                        imageVector = DiscordIcon,
-                                        contentDescription = "Discord",
-                                        tint = MaterialTheme.colorScheme.secondary
-                                    )
-                                }
-                            }
-                        },
                         headlineContent = { Text(stringResource(R.string.setting_page_about)) },
                     )
                     item(
-                        onClick = { navController.navigate(Screen.QuickStart) },
-                        leadingContent = { CardGroupIcon(HugeIcons.Rocket01, containerColor = containerColor, contentColor = contentColor) },
-                        supportingContent = { Text(stringResource(R.string.setting_page_quick_start_desc)) },
-                        headlineContent = { Text(stringResource(R.string.setting_page_quick_start)) },
-                    )
-                    item(
-                        onClick = {
-                            val docUrl = if (java.util.Locale.getDefault().language == "zh") {
-                                "https://docs.rikka-ai.com/zh/introduction"
-                            } else {
-                                "https://docs.rikka-ai.com/introduction"
-                            }
-                            context.openUrl(docUrl)
-                        },
+                        onClick = { context.openUrl("$IAGENT_REPOSITORY#readme") },
                         leadingContent = { CardGroupIcon(HugeIcons.Book01, containerColor = containerColor, contentColor = contentColor) },
                         supportingContent = { Text(stringResource(R.string.setting_page_documentation_desc)) },
                         headlineContent = { Text(stringResource(R.string.setting_page_documentation)) },
@@ -392,12 +311,6 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         leadingContent = { CardGroupIcon(HugeIcons.Bookshelf01, containerColor = containerColor, contentColor = contentColor) },
                         supportingContent = { Text(stringResource(R.string.setting_page_request_logs_desc)) },
                         headlineContent = { Text(stringResource(R.string.setting_page_request_logs)) },
-                    )
-                    item(
-                        onClick = { navController.navigate(Screen.SettingDonate) },
-                        leadingContent = { CardGroupIcon(HugeIcons.InLove, containerColor = containerColor, contentColor = contentColor) },
-                        supportingContent = { Text(stringResource(R.string.setting_page_donate_desc)) },
-                        headlineContent = { Text(stringResource(R.string.setting_page_donate)) },
                     )
                     item(
                         onClick = {
@@ -424,115 +337,4 @@ private fun ColorMode.icon(): ImageVector = when (this) {
     ColorMode.SYSTEM -> HugeIcons.SmartPhone01
     ColorMode.LIGHT -> HugeIcons.Sun01
     ColorMode.DARK -> HugeIcons.Moon02
-}
-
-@Composable
-private fun ProviderConfigWarningCard(onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.errorContainer,
-        contentColor = MaterialTheme.colorScheme.onErrorContainer,
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .background(MaterialTheme.colorScheme.error, MaterialShapes.Cookie9Sided.toShape()),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = HugeIcons.Alert01,
-                        contentDescription = null,
-                        modifier = Modifier.size(28.dp),
-                        tint = MaterialTheme.colorScheme.onError,
-                    )
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.setting_page_config_api_title),
-                        style = MaterialTheme.typography.titleMediumEmphasized,
-                    )
-                    Text(
-                        text = stringResource(R.string.setting_page_config_api_desc),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            }
-            Button(
-                onClick = onClick,
-                modifier = Modifier.align(Alignment.End),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError,
-                ),
-            ) {
-                Text(stringResource(R.string.setting_page_config))
-            }
-        }
-    }
-}
-
-private data class QQGroup(
-    val name: String,
-    val key: String? = null,
-    val number: String? = null,
-    val icon: ImageVector = TencentQQIcon,
-)
-
-private val QQ_GROUPS = listOf(
-    QQGroup("RikkaHub 一群", "4POE46u9e_zoy1TkNfWdCvueR9CKFJdk"),
-    QQGroup("RikkaHub 二群", "Qsm0whzbPsm1UyNpR683ulLyMZ2Pqrw0"),
-    QQGroup("RikkaHub 三群", "Qc9oP-9tXioZeQEvEvI2_owWtBAIx3lS"),
-    QQGroup("抖音一群", number = "569655479852", icon = HugeIcons.Tiktok),
-)
-
-@Composable
-private fun QQGroupBottomSheet(onDismiss: () -> Unit) {
-    val context = LocalContext.current
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            QQ_GROUPS.forEach { group ->
-                ListItem(
-                    onClick = {
-                        if (group.number != null) {
-                            context.writeClipboardText(group.number)
-                            Toast.makeText(context, "群号已复制", Toast.LENGTH_SHORT).show()
-                        } else {
-                            context.joinQQGroup(group.key)
-                        }
-                        onDismiss()
-                    },
-                    supportingContent = group.number?.let { number ->
-                        { Text(number) }
-                    },
-                    leadingContent = {
-                        Icon(
-                            imageVector = group.icon,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.secondary
-                        )
-                    },
-                ) {
-                    Text(group.name)
-                }
-            }
-        }
-    }
 }

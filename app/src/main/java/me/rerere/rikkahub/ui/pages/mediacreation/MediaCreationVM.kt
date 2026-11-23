@@ -45,10 +45,10 @@ import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.files.MediaCreationFiles
-import me.rerere.rikkahub.data.remote.RemoteFileStore
 import me.rerere.rikkahub.data.model.MediaCreationAsset
 import me.rerere.rikkahub.data.model.MediaCreationAssetType
 import me.rerere.rikkahub.data.model.MediaCreationDraft
+import me.rerere.rikkahub.data.model.MediaCreationModeDraft
 import me.rerere.rikkahub.data.model.MediaCreationNode
 import me.rerere.rikkahub.data.model.MediaCreationOutput
 import me.rerere.rikkahub.data.model.MediaCreationParams
@@ -58,6 +58,7 @@ import me.rerere.rikkahub.data.model.MediaCreationStatus
 import me.rerere.rikkahub.data.model.canSubmit
 import me.rerere.rikkahub.data.model.supportedBy
 import me.rerere.rikkahub.data.model.withRequired
+import me.rerere.rikkahub.data.remote.RemoteFileStore
 import me.rerere.rikkahub.data.repository.MediaCreationRepository
 import me.rerere.rikkahub.service.MediaCreationService
 import me.rerere.rikkahub.service.MediaCreationSubmission
@@ -161,6 +162,8 @@ class MediaCreationVM(
 
     // 输入区最近一次提交，还没有结果时不接受下一次
     private var generateJob: Job? = null
+    private val _submitting = MutableStateFlow(false)
+    val submitting = _submitting.asStateFlow()
 
     // 同一个文件连续选用两次时，第二次要等第一次的副本写完
     private val draftCopyMutex = Mutex()
@@ -197,21 +200,29 @@ class MediaCreationVM(
     private suspend fun load() {
         val session = repository.getSession(sessionId) ?: return
         val providers = settingsStore.awaitLoaded().mediaGenerationProviders
-        val assets = withContext(Dispatchers.IO) {
-            val assets = session.draft.assets.filter { repository.resolve(it.path).isFile }
+        val initial = session.draft
+        val (assets, alternate) = withContext(Dispatchers.IO) {
+            val assets = initial.assets.filter { repository.resolve(it.path).isFile }
+            val alternate = initial.otherMode?.let { other ->
+                other.copy(assets = other.assets.filter { repository.resolve(it.path).isFile })
+            }
             // 草稿目录里不再被引用的文件是之前移除的素材
-            val referenced = assets.map { repository.resolve(it.path) }.toSet()
+            val referenced = (assets + alternate?.assets.orEmpty()).map { repository.resolve(it.path) }.toSet()
             repository.draftDir(session.id).listFiles()?.filterNot { it in referenced }?.forEach { it.delete() }
-            assets
+            assets to alternate
         }
-        val modelId = session.draft.modelId?.takeIf { providers.findSelection(it) != null }
-            ?: providers.firstNotNullOfOrNull { provider ->
-                provider.models.firstOrNull { provider.capabilities(it.kind) != null }
-            }?.id
-        val editingNodeId = session.draft.editingNodeId?.takeIf { repository.hasNode(it) }
-        savedDraft = session.draft
-        draftState.value = session.draft.copy(modelId = modelId, assets = assets, editingNodeId = editingNodeId)
-        promptState.setTextAndPlaceCursorAtEnd(session.draft.prompt)
+        val kind = initial.kind ?: providers.findSelection(initial.modelId)?.model?.kind ?: MediaKind.IMAGE
+        val modelId = providers.findStudioModel(kind, initial.modelId)?.model?.id
+        val editingNodeId = initial.editingNodeId?.takeIf { repository.hasNode(it) }
+        savedDraft = initial
+        draftState.value = initial.copy(
+            modelId = modelId,
+            kind = kind,
+            assets = assets,
+            editingNodeId = editingNodeId,
+            otherMode = alternate,
+        )
+        promptState.setTextAndPlaceCursorAtEnd(initial.prompt)
     }
 
     private suspend fun save(draft: MediaCreationDraft) {
@@ -226,6 +237,42 @@ class MediaCreationVM(
 
     fun updateParams(params: MediaCreationParams) = updateDraft { it.copy(params = params) }
 
+    fun useExamplePrompt(prompt: String) {
+        if (promptState.text.isBlank()) promptState.setTextAndPlaceCursorAtEnd(prompt)
+    }
+
+    fun selectKind(kind: MediaKind) {
+        val current = draftState.value ?: return
+        val previousKind = current.kind ?: currentSelection(current)?.model?.kind ?: MediaKind.IMAGE
+        if (previousKind == kind) return
+        val previous = MediaCreationModeDraft(
+            previousKind,
+            current.modelId,
+            promptState.text.toString(),
+            current.assets,
+            current.params,
+            current.editingNodeId,
+        )
+        val next = current.otherMode?.takeIf { it.kind == kind }
+        val selection = settingsStore.settingsFlow.value.mediaGenerationProviders.findStudioModel(kind, next?.modelId)
+        val nextDraft = MediaCreationDraft(
+            modelId = selection?.model?.id,
+            prompt = next?.prompt.orEmpty(),
+            assets = next?.assets.orEmpty(),
+            params = if (next?.modelId ==
+                selection?.model?.id) {
+                next?.params ?: MediaCreationParams()
+            } else {
+                MediaCreationParams()
+            },
+            editingNodeId = next?.editingNodeId,
+            kind = kind,
+            otherMode = previous,
+        )
+        promptState.setTextAndPlaceCursorAtEnd(nextDraft.prompt)
+        draftState.value = nextDraft
+    }
+
     /** 清空提示词和素材，模型和参数保留。 */
     fun clearDraft() {
         promptState.clearText()
@@ -238,22 +285,25 @@ class MediaCreationVM(
     /**
      * 切换模型。换了厂商或类型时参数的取值不再通用，恢复成默认；素材调整成新模型能接受的形态。
      */
-    fun selectModel(provider: MediaGenerationProviderSetting, model: MediaGenerationModel) = updateDraft { draft ->
-        val capabilities = provider.capabilities(model.kind) ?: return@updateDraft draft
-        val previous = currentSelection(draft)
-        val sameShape = previous != null &&
-            previous.provider::class == provider::class &&
-            previous.model.kind == model.kind
-        draft.copy(
-            modelId = model.id,
-            params = if (sameShape) draft.params else MediaCreationParams(),
-            assets = draft.assets.supportedBy(capabilities),
-        )
+    fun selectModel(provider: MediaGenerationProviderSetting, model: MediaGenerationModel) {
+        val capabilities = provider.capabilities(model.kind) ?: return
+        selectKind(model.kind)
+        updateDraft { draft ->
+            val previous = currentSelection(draft)
+            val sameShape = previous != null && previous.provider.id == provider.id && previous.model.id == model.id
+            draft.copy(
+                modelId = model.id,
+                kind = model.kind,
+                params = if (sameShape) draft.params else MediaCreationParams(),
+                assets = draft.assets.supportedBy(capabilities),
+            )
+        }
     }
 
     /** 把相册里选的文件导入草稿。 */
     fun importAssets(uris: List<Uri>, type: MediaCreationAssetType, role: ImageRole) {
         if (draftState.value == null || uris.isEmpty()) return
+        val targetKind = draftState.value?.kind
         viewModelScope.launch {
             val dir = repository.draftDir(sessionId)
             val files = withContext(Dispatchers.IO) {
@@ -262,6 +312,7 @@ class MediaCreationVM(
                         when (type) {
                             MediaCreationAssetType.IMAGE -> MediaCreationFiles.importImage(context, uri, dir)
                             MediaCreationAssetType.VIDEO -> MediaCreationFiles.importVideo(context, uri, dir)
+                            MediaCreationAssetType.AUDIO -> MediaCreationFiles.importAudio(context, uri, dir)
                         }
                     }.onFailure {
                         Log.e(TAG, "Failed to import $uri", it)
@@ -275,7 +326,18 @@ class MediaCreationVM(
                     )
                 )
             }
-            files.forEach { addAsset(MediaCreationAsset(repository.relativePath(it), type, role)) }
+            val additions = files.map { MediaCreationAsset(repository.relativePath(it), type, role) }
+            updateDraft { draft ->
+                if (targetKind == null || targetKind == draft.kind) {
+                    draft.withAssets(draft.assets + additions)
+                } else {
+                    val inactive = draft.otherMode?.takeIf { it.kind == targetKind } ?: return@updateDraft draft
+                    val inactiveDraft = MediaCreationDraft(
+                        modelId = inactive.modelId
+                    ).withAssets(inactive.assets + additions)
+                    draft.copy(otherMode = inactive.copy(assets = inactiveDraft.assets))
+                }
+            }
         }
     }
 
@@ -434,7 +496,7 @@ class MediaCreationVM(
             return
         }
         if (!submitted.canSubmit(selection.capabilities)) return
-        generateJob = submit(
+        val job = submit(
             MediaCreationSubmission(
                 sessionId = sessionId,
                 nodeId = submitted.editingNodeId,
@@ -446,8 +508,20 @@ class MediaCreationVM(
             ),
             selection.capabilities,
         ) {
-            val untouched = promptState.text.toString() == submitted.prompt &&
-                draftState.value?.assets == submitted.assets
+            val current = draftState.value
+            if (current?.kind != submitted.kind) {
+                updateDraft { draft ->
+                    val alternate = draft.otherMode
+                    if (alternate != null && alternate.kind == submitted.kind && alternate.prompt == submitted.prompt &&
+                        alternate.assets == submitted.assets) {
+                        draft.copy(otherMode = alternate.copy(prompt = "", assets = emptyList(), editingNodeId = null))
+                    } else {
+                        draft
+                    }
+                }
+                return@submit
+            }
+            val untouched = promptState.text.toString() == submitted.prompt && current?.assets == submitted.assets
             if (untouched) {
                 clearDraft()
             } else {
@@ -455,6 +529,14 @@ class MediaCreationVM(
                 updateDraft {
                     if (it.editingNodeId == submitted.editingNodeId) it.copy(editingNodeId = null) else it
                 }
+            }
+        }
+        generateJob = job
+        if (job != null) {
+            _submitting.value = true
+            viewModelScope.launch {
+                job.join()
+                _submitting.value = false
             }
         }
     }
@@ -490,7 +572,9 @@ class MediaCreationVM(
         capabilities: MediaGenerationCapabilities,
         onSubmitted: () -> Unit = {},
     ): Job? {
-        if (capabilities.requiresRemoteInputs && submission.assets.isNotEmpty() && !remoteFileStore.isConfigured) {
+        if (capabilities.requiresRemoteInputs && submission.assets.isNotEmpty() &&
+            submission.provider !is MediaGenerationProviderSetting.Iagent && !remoteFileStore.isConfigured
+        ) {
             _events.trySend(MediaCreationEvent.UploadNotConfigured)
             return null
         }
@@ -515,6 +599,7 @@ class MediaCreationVM(
 
     /** 把一条记录的提示词、素材和参数填回输入区，之后生成的结果成为它所在那一项的新版本。 */
     fun editFrom(record: MediaCreationRecord) {
+        selectKind(record.kind)
         updateDraft { draft ->
             val providers = settingsStore.settingsFlow.value.mediaGenerationProviders
             val model = providers.find { it.id == record.providerId }
@@ -604,7 +689,11 @@ class MediaCreationVM(
         viewModelScope.launch {
             val records = service.deleteNodes(sessionId, nodeIds)
             // 草稿可能正引用着这些记录的文件，也可能正在修改其中某一项
-            val recordDirs = records.map { repository.relativePath(repository.recordDir(sessionId, it)) + File.separator }
+            val recordDirs = records.map {
+                repository.relativePath(
+                    repository.recordDir(sessionId, it)
+                ) + File.separator
+            }
             updateDraft { draft ->
                 draft.copy(
                     assets = draft.assets.filterNot { asset -> recordDirs.any { asset.path.startsWith(it) } },
@@ -615,12 +704,24 @@ class MediaCreationVM(
     }
 
     companion object {
-        private const val MAX_ASSETS = 16
+        private const val MAX_ASSETS = 48
         private const val RECENT_RECORD_LIMIT = 60
         private val DRAFT_SAVE_DELAY = 500.milliseconds
     }
 }
 
+private fun List<MediaGenerationProviderSetting>.findStudioModel(
+    kind: MediaKind,
+    preferredId: Uuid?,
+): MediaCreationModelSelection? {
+    findSelection(preferredId)?.takeIf { it.model.kind == kind }?.let { return it }
+    val candidates = flatMap { provider ->
+        val capabilities = provider.capabilities(kind) ?: return@flatMap emptyList()
+        provider.models.filter { it.kind == kind }.map { MediaCreationModelSelection(provider, it, capabilities) }
+    }
+    val recommended = if (kind == MediaKind.IMAGE) "gpt-image-2" else "wan3.0-video"
+    return candidates.firstOrNull { it.model.modelId == recommended } ?: candidates.firstOrNull()
+}
 private fun List<MediaGenerationProviderSetting>.findSelection(modelId: Uuid?): MediaCreationModelSelection? {
     if (modelId == null) return null
     forEach { provider ->

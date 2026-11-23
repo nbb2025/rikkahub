@@ -52,7 +52,7 @@ class SettingsFieldsTest {
         val stored = mutablePreferencesOf().apply { putSettings(SAMPLE) }.asMap().mapKeys { it.key.name }
 
         assertEquals(STORED_KEYS, stored.keys)
-        assertEquals(false, stored["dynamic_color"])
+        assertEquals(true, stored["dynamic_color"])
         assertEquals(9090, stored["web_server_port"])
         assertEquals(1.5f, stored["default_tts_playback_speed"])
         assertEquals(0.9f, stored["auto_compress_threshold"])
@@ -75,7 +75,8 @@ class SettingsFieldsTest {
         assertEquals(DEFAULT_SYSTEM_TTS_ID, settings.selectedTTSProviderId)
         assertEquals(null, settings.selectedASRProviderId)
         assertEquals(null, settings.memoryModelId)
-        assertEquals(true, settings.dynamicColor)
+        assertEquals(false, settings.dynamicColor)
+        assertEquals("iagent-sea-salt", settings.themeId)
         assertEquals(8080, settings.webServerPort)
     }
 
@@ -113,7 +114,7 @@ private fun id(n: Int) = Uuid.parse("00000000-0000-0000-0000-%012d".format(n))
 
 // 每个字段都取了和默认值不同的值
 private val SAMPLE = Settings(
-    dynamicColor = false,
+    dynamicColor = true,
     themeId = "custom",
     customThemes = listOf(CustomTheme(id = "theme", name = "Theme")),
     developerMode = true,

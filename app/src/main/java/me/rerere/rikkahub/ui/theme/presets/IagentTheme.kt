@@ -1,0 +1,71 @@
+package me.rerere.rikkahub.ui.theme.presets
+
+import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.graphics.Color
+import me.rerere.rikkahub.ui.theme.PresetTheme
+
+// iAgent's Sea Salt workspace colors, mapped to the native semantic color roles.
+val IagentThemePreset = PresetTheme(
+    id = "iagent-sea-salt",
+    name = { Text("iAgent · Sea Salt") },
+    standardLight = lightColorScheme(
+        primary = Color(0xFF216977),
+        onPrimary = Color.White,
+        primaryContainer = Color(0xFFDCEEF2),
+        onPrimaryContainer = Color(0xFF184A55),
+        secondary = Color(0xFF4C6684),
+        onSecondary = Color.White,
+        secondaryContainer = Color(0xFFE1EBFA),
+        onSecondaryContainer = Color(0xFF29445F),
+        tertiary = Color(0xFF795C32),
+        tertiaryContainer = Color(0xFFF3E8D6),
+        onTertiaryContainer = Color(0xFF574223),
+        background = Color(0xFFF0F5F8),
+        onBackground = Color(0xFF263746),
+        surface = Color(0xFFFCFEFF),
+        onSurface = Color(0xFF263746),
+        surfaceVariant = Color(0xFFE6EEF4),
+        onSurfaceVariant = Color(0xFF536879),
+        surfaceContainerLowest = Color.White,
+        surfaceContainerLow = Color(0xFFF7FBFD),
+        surfaceContainer = Color(0xFFEFF5F8),
+        surfaceContainerHigh = Color(0xFFE6EEF4),
+        surfaceContainerHighest = Color(0xFFDCE8F0),
+        outline = Color(0xFF758797),
+        outlineVariant = Color(0xFFD2DFE8),
+        inverseSurface = Color(0xFF263746),
+        inverseOnSurface = Color(0xFFE8F0F5),
+        inversePrimary = Color(0xFF9AD5DF),
+    ),
+    standardDark = darkColorScheme(
+        primary = Color(0xFF94D0D7),
+        onPrimary = Color(0xFF113F48),
+        primaryContainer = Color(0xFF244951),
+        onPrimaryContainer = Color(0xFFC7EDF1),
+        secondary = Color(0xFFAAC8EF),
+        onSecondary = Color(0xFF1C3652),
+        secondaryContainer = Color(0xFF2F475F),
+        onSecondaryContainer = Color(0xFFD9E8FD),
+        tertiary = Color(0xFFDDC19A),
+        tertiaryContainer = Color(0xFF51432F),
+        onTertiaryContainer = Color(0xFFF0DBB9),
+        background = Color(0xFF19232C),
+        onBackground = Color(0xFFE8F0F5),
+        surface = Color(0xFF222F39),
+        onSurface = Color(0xFFE8F0F5),
+        surfaceVariant = Color(0xFF32424E),
+        onSurfaceVariant = Color(0xFFB2C5D1),
+        surfaceContainerLowest = Color(0xFF17212A),
+        surfaceContainerLow = Color(0xFF202D37),
+        surfaceContainer = Color(0xFF293742),
+        surfaceContainerHigh = Color(0xFF32424E),
+        surfaceContainerHighest = Color(0xFF394B58),
+        outline = Color(0xFF91A6B6),
+        outlineVariant = Color(0xFF425766),
+        inverseSurface = Color(0xFFDAE8F1),
+        inverseOnSurface = Color(0xFF263746),
+        inversePrimary = Color(0xFF216977),
+    ),
+)

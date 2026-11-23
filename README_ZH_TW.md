@@ -1,98 +1,27 @@
-<div align="center">
-  <img src="docs/icon.png" alt="App 圖標" width="100" />
-  <h1>RikkaHub</h1>
+# iAgent Android 版
 
-一個原生Android LLM 聊天客戶端，支持切換不同的供應商進行聊天 🤖💬
+iAgent 是 [ai.iagent.dev](https://ai.iagent.dev/) 的 Android 用戶端。開啟 App 後可先瀏覽工作台、模型和公開技能。聊天、生成圖片或影片、儲值時使用 iAgent 帳號登入。
 
-點擊加入我們的Discord伺服器 👉 [【RikkaHub】](https://discord.gg/9weBqxe5c4)
+[English](README.md) · [简体中文](README_ZH_CN.md) · [下載組建](https://github.com/nbb2025/rikkahub/actions/workflows/android.yml)
 
-[English](README.md) | 繁體中文 | [简体中文](README_ZH_CN.md)
+## 安裝
 
-</div>
+開啟已成功的 **iAgent Android** 組建，下載 **iAgent-Android-APKs**，解壓縮後安裝適用的 APK。大多數 Android 手機和 Apple Silicon 模擬器使用 `arm64-v8a`，Intel 模擬器通常使用 `x86_64`。系統需為 Android 8.0 或更新版本。
 
-<div align="center">
-  <img src="docs/img/poster.png" alt="RikkaHub" width="800" />
-</div>
+## 工作台
 
-## 🚀 下載
+- **聊天**依帳號同步可用的 iAgent 分組和模型，支援助理、對話紀錄、附件、工具呼叫、Skill 和 MCP。
+- **創作**提供 GPT Image 等圖片模型，以及 Wan、Video-LT 等影片模型。圖片和影片各自保留草稿，參考素材和參數依模型調整。
+- **模型廣場**顯示線上模型、分組倍率及已公佈的基準 Token 價格。模型選擇器優先使用 iAgent 的線上排序，缺少規則時依名稱自然降冪排列。
+- **餘額儲值**使用 iAgent 的付款管道及訂單介面。付款時開啟付款頁面或 QR Code，iAgent 確認入帳後更新餘額。
+- **Agent 技能**支援在 [Skills.sh](https://skills.sh/) 尋找公開技能，也能從 GitHub、ZIP 或 `SKILL.md` 檔案匯入。
 
-🔗 [前往官網下載](https://rikka-ai.com/download)（推薦）
+「帳號 → 應用程式偏好設定 → 關於」提供官網及開放原始碼儲存庫。iAgent QQ 群組號碼為 **116098473**，點選號碼即可複製。
 
-🔗 [前往 Google Play 下載](https://play.google.com/store/apps/details?id=me.rerere.rikkahub)
+## 開發與組建
 
-> [!WARNING]
-> RikkaHub 存在許多 fork 版本，fork 版本出現問題與 RikkaHub 無關，請謹慎使用 fork 版本，避免隱私洩露或者過度索要權限問題。
+請參閱 [Android 開發與組建文件](docs/android.md)。每次推送至 `master`，GitHub Actions 會執行測試並上傳依架構拆分的精簡 APK。
 
-## 💖 贊助商
+## 開放原始碼授權
 
-| 贊助商 | 介紹 |
-|:---:|:---|
-| <img src="docs/sponsors/sta1n.png" alt="STA1N API" width="50" /><br /><b><a href="https://sta1n.ai">STA1N API🍪</a></b> | 感謝<a href="https://sta1n.ai">STA1N API</a>對本項目的贊助！主營 RP 的站。 |
-| <img src="docs/sponsors/api-mart.png" alt="APIMart" width="50" /><br /><b><a href="https://go.apimart.ai/gh-rikkahub">APIMart</a></b> | 感謝 APIMart 贊助了本專案！APIMart 是專注 AI 圖片/影片生成的低價 API 平台，GPT-Image-2 低至 $0.006/張，1 美元可出圖 160+ 張。圖片、影片一套非同步 API 通吃，提交任務拿 ID、回呼取結果，批次生成萬張不逾時、換模型不改程式碼。按量付費、無月費，透過<a href="https://go.apimart.ai/gh-rikkahub">此註冊連結</a>註冊即可開始使用。 |
-| <img src="docs/sponsors/suixiang.jpg" alt="隨想AI網關" width="50" /><br /><b>隨想AI網關</b> | 感謝隨想AI網關對本項目的贊助！隨想AI網關 是一家可靠高效的 API 中繼服務提供商，提供 Claude、Codex、Gemini 等的中繼服務。注重隱私的中轉站·無數據倒賣·無模型摻水，隱私，透明，極速售後。新帳戶註冊每日簽到就送 0.5 元測試額度，儲值額度 1:1，無需訂閱，按量付費。多線路冗餘、跨區域容災、自動故障切換，長鏈路 SSE 不中斷。99.9% 可用性，關鍵呼叫從不掉隊。 |
-| <img src="docs/sponsors/maru.png" alt="MaruCode" width="50" /><br /><b><a href="https://api.muteki.site/register?aff=Rikkahub&promo=Rikkahub">MaruCode</a></b> | <b><a href="https://api.muteki.site/register?aff=Rikkahub&promo=Rikkahub">MaruCode</a></b> 是一家偶爾做做慈善的小破站 API，自營號池，主要提供 Codex、Claude Code、GPT Image 等主流模型，支援 Websocket 協定，明碼標價(Codex 0.25x, CC 1.5x)，透明匯率(1:1)，<a href="https://api.muteki.site/register?aff=Rikkahub&promo=Rikkahub">新用戶註冊送 2 刀</a>。<a href="https://images-2.muteki.site">生图工作台🖼️</a> |
-| <img src="docs/sponsors/naapi.png" alt="鈉API" width="50" /><br /><b><a href="https://naapi.cc/register?aff=rikkahub">鈉API</a></b> | 感謝<a href="https://naapi.cc/register?aff=rikkahub">鈉API</a>對本項目的贊助！鈉API（naapi.cc）是 OpenAI 相容的 LLM 閘道，以優惠價格提供 OpenAI、Anthropic、Google 等 300+ 模型存取。一個 base URL 加一個 key 即可接入；多線路冗餘、自動故障切換，長鏈路 SSE 不中斷；按量付費、儲值額度 1:1，無訂閱、無隱藏加價。 |
-
-## ✨ 功能特色
-
-- 🎨 現代化安卓APP設計（Material 3 Expressive / 預測性返回）
-- 📦 工作區：基於 proot 的 Linux 智能體環境
-- 📱 Phone Use：讓 AI 操控手機
-- 🎬 媒體生成（圖片、影片）
-- 🔄 多種類型的供應商支持，自定義 API / URL / 模型（目前支持 OpenAI、Google、Anthropic）
-- 🖥️ Web多端訪問支持
-- 🛠️ MCP 與 Skills 支持
-- 📝 Markdown 渲染（支持代碼高亮、數學公式、表格、Mermaid）
-- 🔍 搜尋功能（Exa、Tavily、Zhipu、LinkUp、Brave、Perplexity、..）
-- 🧩 Prompt 變量（模型名稱、時間等）
-- 🤳 二維碼導出和導入提供商
-- 🤖 智能體自定義
-- 🧠 基於檔案的記憶
-- 📝 AI翻譯
-- 🌐 自定義HTTP請求頭和請求體
-- 💌 SillyTavern 角色卡匯入
-
-## ✨ 開發
-
-> [!IMPORTANT]
-> 本項目不接受 Pull Request（PR）。
-
-本項目使用[Android Studio](https://developer.android.com/studio)開發。
-
-技術棧文檔:
-
-- [Kotlin](https://kotlinlang.org/) (開發語言)
-- [Koin](https://insert-koin.io/) (依賴注入)
-- [Jetpack Compose](https://developer.android.com/jetpack/compose) (UI 框架)
-- [DataStore](https://developer.android.com/topic/libraries/architecture/datastore?hl=zh-cn#preferences-datastore) (
-  偏好數據存儲)
-- [Room](https://developer.android.com/training/data-storage/room) (數據庫)
-- [Coil](https://coil-kt.github.io/coil/) (圖片加載)
-- [Material 3 Expressive](https://m3.material.io/) (UI 設計)
-- [Navigation 3](https://developer.android.com/guide/navigation/navigation-3) (導航)
-- [Okhttp](https://square.github.io/okhttp/) (HTTP 客戶端)
-- [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) (Json序列化)
-
-> [!TIP]
-> 你需要在 `app` 資料夾下添加 `google-services.json` 檔案才能構建應用。
-
-## 💰 捐贈
-
-* [Ko-fi](https://ko-fi.com/reovodev)
-* [愛發電](https://afdian.com/a/reovo)
-
-## ⭐ Star History
-
-如果喜歡這個項目，請給個Star ⭐
-
-<a href="https://www.star-history.com/?type=date&repos=re-ovo%2Frikkahub">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=re-ovo/rikkahub&type=date&theme=dark&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=re-ovo/rikkahub&type=date&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=re-ovo/rikkahub&type=date&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
- </picture>
-</a>
-
-## 📄 許可證
-
-本項目基於 [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0) 開源。
+iAgent 改編自 [RikkaHub](https://github.com/rikkahub/rikkahub)。原始碼採用 [GNU AGPL-3.0](LICENSE) 授權，各模組及依賴套件另有各自的聲明。
