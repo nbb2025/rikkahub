@@ -26,6 +26,14 @@ pnpm --dir web-ui install --frozen-lockfile
 
 模型广场中的 Token 单价为线上公布的基准价，按每百万 Token 显示。账号分组倍率单列，套餐、阶梯或模型专属价格以 iAgent 服务端计费为准。
 
+## 分组与专用令牌
+
+登录后，App 每次进入前台都会刷新可用分组，停留在前台时大约每分钟检查一次。新分组在账号有权限且模型目录已经发布后出现在选择器。分组撤下或账号失去权限时，从本地选择器移除。分组查询失败时保留上次成功状态。如果只加载失败的是模型目录，App 仍会移除已确认下线的分组。
+
+同步渠道不会修改远端令牌。聊天和创作按账号、分组和用途独立绑定，使用与网页相同的「聊天」和「创意工坊」专用令牌名称。实际发起请求时先检查本机绑定的令牌 ID，再遍历远端同分组库存。已有可用令牌就复用，发现停用、过期或额度用尽的专用令牌时提示检查。已知令牌被删除或移走后，App 会在发现可用替代令牌时重新绑定。
+
+只有第一次使用且确认没有专用令牌时才发起创建。新 Android 客户端对同一账号、分组和用途使用相同的 `Idempotency-Key`。创建结果不明时保留本地记录，下一次先读取远端库存确认结果。没有已知结果前暂停重复创建。历史媒体任务可用原令牌继续查询和下载，结果仍受远端权限和任务有效期限制。
+
 ## 测试
 
 ```sh
@@ -34,11 +42,12 @@ pnpm --dir web-ui install --frozen-lockfile
 adb install -r app/build/outputs/apk/github/debug/app-github-universal-debug.apk
 adb install -r -t app/build/outputs/apk/androidTest/github/debug/app-github-debug-androidTest.apk
 adb shell am instrument -w \
-  -e class me.rerere.rikkahub.ui.IagentWorkbenchTest \
+  -e class me.rerere.rikkahub.ui.IagentWorkbenchTest,me.rerere.rikkahub.ui.IagentWorkspaceLifecycleTest \
   dev.iagent.app.debug.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
 工作台测试会使用模拟账号和充值数据。请在单独的测试模拟器运行，它会写入测试会话和草稿。增加 `-e publicSkills true` 可以额外验证 Skills.sh 搜索及 GitHub 导入。
+分组生命周期测试模拟上架、下线、恢复、重复请求和创建响应丢失。
 
 ## 打包和签名
 

@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,13 +70,16 @@ private data class Session(
 private data class IagentKey(
     val id: Long,
     val name: String,
-    val key: String,
+    val key: String = "",
     val status: String,
     @SerialName("group_id") val groupId: Long? = null,
+    val group: IagentKeyGroup? = null,
     @SerialName("expires_at") val expiresAt: String? = null,
     val quota: Double = 0.0,
     @SerialName("quota_used") val quotaUsed: Double = 0.0,
 ) {
+    val boundGroup get() = groupId ?: group?.id
+
     fun usable() = status == "active" && key.isNotBlank() &&
         (quota <= 0 || quotaUsed < quota) &&
         (expiresAt.isNullOrBlank() ||
@@ -83,11 +87,23 @@ private data class IagentKey(
 }
 
 @Serializable
-private data class KeyPage(val items: List<IagentKey>, val pages: Int = 1, val total: Int = 0)
+private data class IagentKeyGroup(val id: Long)
+
+@Serializable
+private data class KeyPage(
+    val items: List<IagentKey>,
+    val pages: Int = 1,
+    val total: Int = 0,
+    @SerialName("page_size") val pageSize: Int = 100,
+)
+
+private data class CachedIagentKey(val entry: IagentKey, val fetchedAt: Long)
+private data class IagentGroupSnapshot(val owner: Long, val groups: List<IagentGroup>, val fetchedAt: Long)
 
 internal data class IagentKeyRef(val user: Long, val group: Long, val media: Boolean) {
     fun encode() = "iagent-managed:$user:$group:" + if (media) "media" else "chat"
     val workspaceName get() = if (media) "创意工坊" else "聊天"
+    val idempotencyKey get() = "iagent-workspace-v1-$user-$group-${if (media) "media" else "chat"}"
 
     companion object {
         fun parse(value: String): IagentKeyRef? {
@@ -120,7 +136,9 @@ class IagentAccount internal constructor(
     val user = currentUser.asStateFlow()
     private val sessionLock = Mutex()
     private val keyLock = Mutex()
-    private val keys = mutableMapOf<IagentKeyRef, IagentKey>()
+    private val groupLock = Mutex()
+    private val keys = mutableMapOf<IagentKeyRef, CachedIagentKey>()
+    private var groupSnapshot: IagentGroupSnapshot? = null
 
     // This client does not inherit the app's request logger or reissue a charged POST on failure.
     internal val http = httpClient ?: OkHttpClient.Builder()
@@ -176,6 +194,7 @@ class IagentAccount internal constructor(
             value
         }
         keyLock.withLock { keys.clear() }
+        groupLock.withLock { groupSnapshot = null }
         previous?.refresh?.let { token ->
             scope.async(Dispatchers.IO) {
                 try {
@@ -194,8 +213,17 @@ class IagentAccount internal constructor(
     internal suspend fun siteBilling(): IagentSiteBilling =
         decode<IagentSiteConfig>(request("/site-api/config", envelope = false)).billing
 
-    internal suspend fun groups(owner: Long): List<IagentGroup> =
-        decode(authenticated(owner, "/api/v1/groups/available"))
+    internal suspend fun groups(owner: Long, maxAgeMillis: Long = 0): List<IagentGroup> = groupLock.withLock {
+        requireSession(owner)
+        val cached = groupSnapshot
+        if (cached != null && cached.owner == owner && maxAgeMillis > 0 &&
+            android.os.SystemClock.elapsedRealtime() - cached.fetchedAt <= maxAgeMillis) {
+            return@withLock cached.groups
+        }
+        decode<List<IagentGroup>>(authenticated(owner, "/api/v1/groups/available")).also {
+            groupSnapshot = IagentGroupSnapshot(owner, it, android.os.SystemClock.elapsedRealtime())
+        }
+    }
 
     suspend fun refreshProfile(owner: Long) = withContext(Dispatchers.IO) {
         val profile = decode<IagentUser>(authenticated(owner, "/api/v1/auth/me"))
@@ -206,52 +234,128 @@ class IagentAccount internal constructor(
         }
     }
 
-    internal suspend fun key(ref: IagentKeyRef): String = keyLock.withLock {
-        val owner = requireSession(ref.user)
-        keys[ref]?.takeIf { it.usable() }?.let { return@withLock it.key }
-        val savedId = profile.getLong(ref.encode(), 0)
-        val entry = if (savedId > 0) {
-            decode<IagentKey>(authenticated(owner.user.id, "/api/v1/keys/$savedId"))
-        } else {
-            val matches = workspaceKeys(ref)
-            matches.firstOrNull(IagentKey::usable) ?: if (matches.isEmpty()) {
-                decode<IagentKey>(authenticated(ref.user, "/api/v1/keys", buildJsonObject {
-                    put("name", ref.workspaceName)
-                    put("group_id", ref.group)
-                }))
-            } else {
-                throw IagentException(403, "分组令牌不可用，请在 iAgent 网站检查状态、有效期和额度。")
+    internal suspend fun key(ref: IagentKeyRef, forSubmission: Boolean): String = withContext(Dispatchers.IO) {
+        keyLock.withLock {
+            requireSession(ref.user)
+            if (forSubmission) requireActiveGroup(ref)
+            keys[ref]?.takeIf {
+                it.entry.usable() && android.os.SystemClock.elapsedRealtime() - it.fetchedAt < 60_000
+            }?.let { return@withLock it.entry.key }
+
+            val savedId = profile.getLong(ref.encode(), 0)
+            if (savedId > 0) {
+                val bound = try {
+                    decode<IagentKey>(authenticated(ref.user, "/api/v1/keys/$savedId"))
+                } catch (error: IagentException) {
+                    if (error.status != 404 && error.status != 403) throw error
+                    null
+                }
+                if (bound != null && bound.id == savedId && bound.boundGroup == ref.group && bound.usable()) {
+                    return@withLock rememberKey(ref, bound)
+                }
             }
+
+            val matches = workspaceKeys(ref)
+            matches.firstOrNull(IagentKey::usable)?.let { return@withLock rememberKey(ref, it) }
+            if (matches.isNotEmpty()) {
+                // Remember unusable managed keys too, so their later disappearance never causes a replacement.
+                check(profile.edit().putLong(ref.encode(), matches.first().id).commit())
+                throw keyUnavailable()
+            }
+            if (savedId > 0 || !forSubmission) throw keyUnavailable()
+            val pendingKey = "${ref.encode()}:creating"
+            if (profile.getBoolean(pendingKey, false)) throw keyCreationUnknown()
+            requireActiveGroup(ref, force = true)
+            check(profile.edit().putBoolean(pendingKey, true).commit()) { "Could not reserve the iAgent key" }
+            val created = try {
+                decode<IagentKey>(authenticated(
+                    ref.user,
+                    "/api/v1/keys",
+                    buildJsonObject {
+                        put("name", ref.workspaceName)
+                        put("group_id", ref.group)
+                    },
+                    idempotencyKey = ref.idempotencyKey,
+                ))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (session?.user?.id == ref.user && error is IagentException &&
+                    error.status in setOf(400, 401, 403, 404)) {
+                    check(profile.edit().remove(pendingKey).commit())
+                    throw error
+                }
+                throw keyCreationUnknown(error)
+            }
+            if (created.boundGroup != ref.group || created.id <= 0) throw keyCreationUnknown()
+            if (!created.usable()) {
+                check(profile.edit().putLong(ref.encode(), created.id).remove(pendingKey).commit())
+                throw keyUnavailable()
+            }
+            rememberKey(ref, created)
         }
-        requireSession(ref.user)
-        if (entry.groupId != ref.group || !entry.usable()) {
-            throw IagentException(403, "分组令牌不可用，请在 iAgent 网站检查状态、有效期和额度。")
-        }
-        check(profile.edit().putLong(ref.encode(), entry.id).commit()) { "Could not save iAgent key reference" }
-        keys[ref] = entry
-        entry.key
     }
+
+    internal suspend fun invalidateKey(ref: IagentKeyRef) {
+        keyLock.withLock { keys.remove(ref) }
+        groupLock.withLock { if (groupSnapshot?.owner == ref.user) groupSnapshot = null }
+    }
+
+    private fun rememberKey(ref: IagentKeyRef, entry: IagentKey): String {
+        requireSession(ref.user)
+        check(profile.edit().putLong(ref.encode(), entry.id).remove("${ref.encode()}:creating").commit()) {
+            "Could not save iAgent key reference"
+        }
+        keys[ref] = CachedIagentKey(entry, android.os.SystemClock.elapsedRealtime())
+        return entry.key
+    }
+
+    private suspend fun requireActiveGroup(ref: IagentKeyRef, force: Boolean = false) {
+        val active = groups(ref.user, maxAgeMillis = if (force) 0 else 30_000)
+            .any { it.id == ref.group && it.status == "active" }
+        if (!active) throw IagentException(403, "iAgent 分组已下线或当前账号无权使用，请选择可用分组。")
+    }
+
+    private fun keyUnavailable() = IagentException(403, "分组令牌不可用，请在 iAgent 网站检查状态、有效期和额度。")
+
+    private fun keyCreationUnknown(cause: Throwable? = null) =
+        IOException("暂时无法确认令牌创建结果。请在 iAgent 网站核对专用令牌后再试。", cause)
 
     private suspend fun workspaceKeys(ref: IagentKeyRef): List<IagentKey> {
         val matches = mutableListOf<IagentKey>()
         var page = 1
+        var pages = 1
         do {
-            val result = decode<KeyPage>(authenticated(ref.user, "/api/v1/keys?page=$page&page_size=100"))
-            matches += result.items.filter { it.groupId == ref.group && it.name == ref.workspaceName }
-            if (result.items.isEmpty()) break
+            val result = decode<KeyPage>(authenticated(
+                ref.user,
+                "/api/v1/keys?page=$page&page_size=100&group_id=${ref.group}"
+            ))
+            val pageSize = result.pageSize.takeIf { it > 0 } ?: 100
+            pages = maxOf(pages, result.pages, ((result.total.toLong() + pageSize - 1) / pageSize).toInt())
+            if (result.items.isEmpty() && (page > 1 || result.total > 0 || pages > 1)) {
+                throw IOException("iAgent 令牌列表未能完整加载，请重试。")
+            }
+            matches += result.items.filter { it.id > 0 && it.boundGroup == ref.group && it.name == ref.workspaceName }
             page++
-        } while (page <= maxOf(result.pages, (result.total + 99) / 100))
-        return matches
+        } while (page <= pages)
+        return matches.distinctBy { it.id }.sortedBy { it.id }
     }
 
-    internal suspend fun authenticated(owner: Long, path: String, body: JsonObject? = null): JsonElement {
+    internal suspend fun authenticated(
+        owner: Long,
+        path: String,
+        body: JsonObject? = null,
+        idempotencyKey: String? = null,
+    ): JsonElement {
         val access = accessToken(owner)
-        try {
-            return request(path, access, body).also { requireSession(owner) }
+        val result = try {
+            request(path, access, body, idempotencyKey = idempotencyKey)
         } catch (error: IagentException) {
             if (error.status != 401) throw error
-            return request(path, accessToken(owner, access), body).also { requireSession(owner) }
+            request(path, accessToken(owner, access), body, idempotencyKey = idempotencyKey)
         }
+        requireSession(owner)
+        return result
     }
 
     private suspend fun accessToken(owner: Long, rejected: String? = null): String {
@@ -305,11 +409,13 @@ class IagentAccount internal constructor(
         token: String? = null,
         body: JsonObject? = null,
         envelope: Boolean = true,
+        idempotencyKey: String? = null,
     ): JsonElement = withContext(Dispatchers.IO) {
         val builder = Request.Builder().url(IAGENT_ORIGIN + path)
             .header("Accept", "application/json")
             .header("Accept-Language", Locale.getDefault().toLanguageTag())
         token?.let { builder.header("Authorization", "Bearer $it") }
+        idempotencyKey?.let { builder.header("Idempotency-Key", it) }
         body?.let { builder.post(it.toString().toRequestBody(jsonType)) }
         http.newCall(builder.build()).await().use { response ->
             val payload = runCatching { json.parseToJsonElement(response.body.string()) }.getOrNull()

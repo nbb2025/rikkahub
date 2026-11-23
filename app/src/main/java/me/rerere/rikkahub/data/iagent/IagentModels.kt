@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.data.iagent
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,6 +15,7 @@ import me.rerere.ai.provider.ProviderSetting
 import me.rerere.mediagen.model.MediaGenerationModel
 import me.rerere.mediagen.provider.IagentMediaProtocol
 import me.rerere.mediagen.provider.MediaGenerationProviderSetting
+import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import okhttp3.Interceptor
 import okhttp3.Response
@@ -35,7 +37,7 @@ class IagentModels(
 
     internal suspend fun loadCatalog(force: Boolean = false): IagentCatalog = catalogLock.withLock {
         val cached = currentCatalog.value
-        if (cached != null && !force && System.currentTimeMillis() - catalogLoadedAt in 0..300_000L) {
+        if (cached != null && !force && System.currentTimeMillis() - catalogLoadedAt in 0..60_000L) {
             return@withLock cached
         }
         account.catalog().also {
@@ -45,16 +47,40 @@ class IagentModels(
     }
 
     suspend fun synchronize(owner: Long, force: Boolean = false) = lock.withLock {
-        val (groups, catalog) = coroutineScope {
+        val (groups, catalogResult) = coroutineScope {
             val groups = async { account.groups(owner) }
-            val catalog = async { loadCatalog(force) }
+            val catalog = async {
+                try {
+                    Result.success(loadCatalog(force))
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Result.failure(error)
+                }
+            }
             groups.await() to catalog.await()
         }
         check(account.user.value?.id == owner)
+        val allowed = groups.filter { it.status == "active" }
+        val catalog = catalogResult.getOrElse { error ->
+            val allowedIds = allowed.mapTo(hashSetOf()) { it.id }
+            settings.update { old ->
+                if (account.user.value?.id != owner) return@update old
+                val media = old.mediaGenerationProviders.filterIsInstance<MediaGenerationProviderSetting.Iagent>()
+                    .filter { IagentKeyRef.parse(it.keyReference)?.group in allowedIds }
+                old.copy(
+                    providers = old.providers.filter { it.iagentRef()?.group in allowedIds },
+                    mediaGenerationProviders = media,
+                    retiredIagentMediaProviders = old.retireIagentMediaProviders(media),
+                )
+            }
+            if (account.user.value?.id == owner) currentGroups.value = IagentAvailableGroups(owner, allowed)
+            throw error
+        }
         val chats = mutableListOf<ProviderSetting>()
-        val media = mutableListOf<MediaGenerationProviderSetting>()
+        val media = mutableListOf<MediaGenerationProviderSetting.Iagent>()
         val activeGroups = catalog.orderGroups(
-            groups.filter { it.status == "active" },
+            allowed,
             IagentGroup::id,
             IagentGroup::name
         )
@@ -131,6 +157,7 @@ class IagentModels(
             old.copy(
                 providers = chats,
                 mediaGenerationProviders = media,
+                retiredIagentMediaProviders = old.retireIagentMediaProviders(media),
                 chatModelId = old.chatModelId.takeIf { it in modelIds } ?: firstModel ?: old.chatModelId,
                 fastModelId = old.fastModelId.takeIf { it in modelIds } ?: firstModel ?: old.fastModelId,
                 enableAutoTitle = !initial && old.enableAutoTitle,
@@ -143,8 +170,20 @@ class IagentModels(
 
 internal data class IagentAvailableGroups(val owner: Long, val groups: List<IagentGroup>)
 
-internal fun ProviderSetting.isIagentManaged(): Boolean =
-    this is ProviderSetting.ApiKey && IagentKeyRef.parse(apiKey) != null
+private fun Settings.retireIagentMediaProviders(
+    next: List<MediaGenerationProviderSetting.Iagent>,
+): List<MediaGenerationProviderSetting.Iagent> {
+    val active = next.mapTo(hashSetOf()) { it.id }
+    return (mediaGenerationProviders.filterIsInstance<MediaGenerationProviderSetting.Iagent>() +
+        retiredIagentMediaProviders)
+        .filterNot { it.id in active }.distinctBy { it.id }.map { it.copy(models = emptyList()) }
+}
+
+private fun ProviderSetting.iagentRef(): IagentKeyRef? = (this as? ProviderSetting.ApiKey)?.apiKey?.let(
+    IagentKeyRef::parse
+)
+
+internal fun ProviderSetting.isIagentManaged(): Boolean = iagentRef() != null
 
 private val imageModel = Regex(
     "(?:gpt[-_. ]?image|dall[-_. ]?e|imagegen|imagen|image[-_ ]generation|image[-_ ]preview|flash[-_ ]image|pro[-_ ]image|nano[-_. ]?banana|stable[-_. ]?diffusion|midjourney|flux(?:[-_. ]|$)|seedream|ideogram|qwen[-_. ]?image|grok[-_. ]?imagine)",
@@ -213,7 +252,7 @@ internal class IagentRequestAuthorization(private val account: IagentAccount) : 
             ?: throw IOException("Invalid iAgent credential reference")
         if (references.any { IagentKeyRef.parse(it.second) != ref }) throw IOException("Conflicting iAgent credentials")
         val key = try {
-            runBlocking { account.key(ref) }
+            runBlocking { account.key(ref, forSubmission = original.method == "POST") }
         } catch (error: Exception) {
             throw IOException(error.message ?: "iAgent authorization failed", error)
         }
@@ -222,7 +261,11 @@ internal class IagentRequestAuthorization(private val account: IagentAccount) : 
             outbound.header(name, if (name == "Authorization") "Bearer $key" else key)
         }
         // Keep the working key out of logs and any redirect request.
-        return chain.proceed(outbound.build()).newBuilder().request(original).build()
+        val response = chain.proceed(outbound.build())
+        if (response.code == 401 || response.code == 403) {
+            runBlocking { account.invalidateKey(ref) }
+        }
+        return response.newBuilder().request(original).build()
     }
 
     private companion object {

@@ -268,9 +268,13 @@ class MediaCreationService(
 
     private suspend fun generate(recordId: Uuid) {
         val record = repository.getRecord(recordId) ?: return
-        val setting = settingsStore.awaitLoaded()
-            .mediaGenerationProviders.find { it.id == record.providerId }
-            ?: error(context.getString(R.string.media_creation_error_provider_deleted, record.providerName))
+        val settings = settingsStore.awaitLoaded()
+        val active = settings.mediaGenerationProviders.find { it.id == record.providerId }
+        val setting = (if (record.taskId != null) {
+            active ?: settings.retiredIagentMediaProviders.find { it.id == record.providerId }
+        } else {
+            active?.takeIf { provider -> provider.models.any { it.modelId == record.modelId && it.kind == record.kind } }
+        }) ?: error(context.getString(R.string.media_creation_error_provider_deleted, record.providerName))
         val model = MediaGenerationModel(modelId = record.modelId, kind = record.kind)
 
         val task = if (record.taskId != null) {
@@ -546,7 +550,7 @@ class MediaCreationService(
     private fun isIagentRecord(record: MediaCreationRecord) =
         settingsStore.settingsFlow.value.mediaGenerationProviders.any {
             it.id == record.providerId && it is MediaGenerationProviderSetting.Iagent
-        }
+        } || settingsStore.settingsFlow.value.retiredIagentMediaProviders.any { it.id == record.providerId }
 
     private fun MediaCreationRecord.withUnknownSubmission() = copy(
         status = MediaCreationStatus.SUBMISSION_UNKNOWN,

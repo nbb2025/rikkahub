@@ -30,7 +30,7 @@ class IagentMediaTransfer(private val account: IagentAccount) {
         .build()
 
     suspend fun prepare(provider: MediaGenerationProviderSetting.Iagent) {
-        account.key(checkNotNull(IagentKeyRef.parse(provider.keyReference)))
+        account.key(checkNotNull(IagentKeyRef.parse(provider.keyReference)), forSubmission = true)
     }
 
     suspend fun upload(
@@ -40,7 +40,7 @@ class IagentMediaTransfer(private val account: IagentAccount) {
         kind: MediaCreationAssetType,
     ): String = withContext(Dispatchers.IO) {
         val reference = checkNotNull(IagentKeyRef.parse(provider.keyReference))
-        val key = account.key(reference)
+        val key = account.key(reference, forSubmission = true)
         val upload = metadata("/v1/media/upload-url", key, buildJsonObject {
             put("model", model)
             put("name", file.name)

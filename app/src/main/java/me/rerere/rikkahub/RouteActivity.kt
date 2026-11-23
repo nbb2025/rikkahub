@@ -45,7 +45,9 @@ import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
@@ -313,13 +315,17 @@ class RouteActivity : ComponentActivity() {
         var recharge by rememberSaveable { mutableStateOf(false) }
         var starter by rememberSaveable { mutableStateOf("") }
         LaunchedEffect(owner) {
-            if (owner != null) {
-                try {
-                    models.synchronize(owner)
-                } catch (error: kotlinx.coroutines.CancellationException) {
-                    throw error
-                } catch (error: Exception) {
-                    android.util.Log.w("iAgent", "Model synchronization failed", error)
+            if (owner == null) return@LaunchedEffect
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    try {
+                        models.synchronize(owner)
+                    } catch (error: kotlinx.coroutines.CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        android.util.Log.w("iAgent", "Model synchronization failed", error)
+                    }
+                    kotlinx.coroutines.delay(60_000)
                 }
             }
         }

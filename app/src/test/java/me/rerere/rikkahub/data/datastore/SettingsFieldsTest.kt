@@ -7,6 +7,7 @@ import kotlinx.serialization.descriptors.elementNames
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.asr.ASRProviderSetting
+import me.rerere.mediagen.provider.IagentMediaProtocol
 import me.rerere.mediagen.provider.MediaGenerationProviderSetting
 import me.rerere.rikkahub.data.ai.mcp.McpServerConfig
 import me.rerere.rikkahub.data.model.Assistant
@@ -154,6 +155,13 @@ private val SAMPLE = Settings(
     s3Config = S3Config(bucket = "backup"),
     uploadS3Config = S3Config(bucket = "upload"),
     mediaGenerationProviders = listOf(MediaGenerationProviderSetting.OpenAI(id = id(9))),
+    retiredIagentMediaProviders = listOf(MediaGenerationProviderSetting.Iagent(
+        id = id(29),
+        name = "Wan",
+        keyReference = "iagent-managed:1:2:media",
+        protocol = IagentMediaProtocol.WAN,
+        models = emptyList(),
+    )),
     ttsProviders = DEFAULT_TTS_PROVIDERS.take(1),
     selectedTTSProviderId = id(10),
     defaultTTSPlaybackSpeed = 1.5f,
@@ -209,6 +217,7 @@ private val STORED_KEYS = setOf(
     "s3_config",
     "upload_s3_config",
     "media_generation_providers",
+    "retired_iagent_media_providers",
     "tts_providers",
     "selected_tts_provider",
     "default_tts_playback_speed",

@@ -157,6 +157,7 @@ class SettingsStore internal constructor(
 
         // 媒体生成
         val MEDIA_GENERATION_PROVIDERS = stringPreferencesKey("media_generation_providers")
+        val RETIRED_IAGENT_MEDIA_PROVIDERS = stringPreferencesKey("retired_iagent_media_providers")
 
         // TTS
         val TTS_PROVIDERS = stringPreferencesKey("tts_providers")

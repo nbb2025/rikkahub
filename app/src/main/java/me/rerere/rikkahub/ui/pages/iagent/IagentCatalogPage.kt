@@ -84,7 +84,7 @@ internal fun IagentCatalogPage(mediaOnly: Boolean = false) {
             loading = false
         }
     }
-    val privateGroups = available?.takeIf { it.owner == owner?.id }?.groups.orEmpty()
+    val privateGroups = available?.takeIf { it.owner == owner?.id }?.groups
     val groups = remember(source, privateGroups, query, mediaOnly) {
         source?.sections(privateGroups, query, mediaOnly).orEmpty()
     }
@@ -229,14 +229,15 @@ private data class CatalogSection(
     val models: List<IagentCatalogModel>,
 )
 
-private fun IagentCatalog.sections(available: List<IagentGroup>, query: String, mediaOnly: Boolean): List<CatalogSection> {
-    val privateGroups = available.associateBy { it.id }
+private fun IagentCatalog.sections(available: List<IagentGroup>?, query: String, mediaOnly: Boolean): List<CatalogSection> {
+    val privateGroups = available?.associateBy { it.id }
     val publicRates = groupPricing.associateBy { it.id }
     val words = query.trim().split(Regex("\\s+")).filter(String::isNotBlank)
     val sections = models.filterNot { isIagentReviewModel(it.id, it.name) }.groupBy { it.groupId }.mapNotNull { (id, entries) ->
         if (id == null) return@mapNotNull null
         val first = entries.first()
-        val channel = privateGroups[id]
+        val channel = privateGroups?.get(id)
+        if (privateGroups != null && channel == null) return@mapNotNull null
         val prices = publicRates[id]
         val name = (channel?.name ?: first.groupName).orEmpty().ifBlank { first.platform.ifBlank { "#$id" } }
         val platform = channel?.platform ?: first.platform

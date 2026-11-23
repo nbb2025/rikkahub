@@ -145,6 +145,10 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
 
         // 媒体生成
         json(MEDIA_GENERATION_PROVIDERS, Settings::mediaGenerationProviders) { copy(mediaGenerationProviders = it) },
+        json(
+            RETIRED_IAGENT_MEDIA_PROVIDERS,
+            Settings::retiredIagentMediaProviders
+        ) { copy(retiredIagentMediaProviders = it) },
 
         // TTS
         json(TTS_PROVIDERS, Settings::ttsProviders) { copy(ttsProviders = it) },
