@@ -18,7 +18,8 @@ pnpm --dir web-ui install --frozen-lockfile
 | --- | --- |
 | 访客模式 | 进入聊天和创作首页，浏览线上模型目录和 Skills.sh。点击需要账号的操作后打开登录页，登录后回到目标页面。 |
 | iAgent 登录 | 使用 `/api/v1/auth` 接口，支持二步验证。会话由 Android Keystore 加密保存，退出后访客页面无法打开账号的本地会话。 |
-| 模型与分组 | 公开目录读取 `/site-api/models?include_group_pricing=1`。登录后再读取 `/api/v1/groups/available`，选择器仅使用账号有权限的 iAgent 渠道。 |
+| 提供商 | 提供商页有 iAgent 和 DeepSeek 两项。iAgent 使用账号登录，DeepSeek 使用用户在官方平台创建的 API Key，在提供商详情页添加模型。 |
+| 模型与分组 | 公开目录读取 `/site-api/models?include_group_pricing=1`。登录后再读取 `/api/v1/groups/available`，iAgent 模型按账号的分组权限显示。 |
 | 排序与过滤 | 延用目录返回的 `group_order` 和 `sort_rules`。同优先级或缺少规则时使用名称的自然降序。聊天模型列表会排除 Auto Review。 |
 | 创作 | 根据模型协议加载图片、视频、音频和首尾帧等参考选项。任务和本地作品由创作仓库管理。 |
 | 充值 | 使用站点支付配置和 `/api/v1/payment` 接口。客户端显示估价，实际金额和到账状态以 iAgent 订单为准。 |

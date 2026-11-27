@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.data.datastore
 
+import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.ProviderSetting
 import me.rerere.mediagen.provider.MediaGenerationProviderSetting
 import me.rerere.rikkahub.data.iagent.isIagentManaged
 import me.rerere.rikkahub.data.iagent.isIagentReviewModel
@@ -11,25 +13,41 @@ internal fun Settings.normalized(): Settings =
 internal fun Settings.normalizedForIagent(): Settings = withIagentModels().normalized()
 
 private fun Settings.withIagentModels(): Settings {
-    val providers = providers.filter { it.isIagentManaged() }.mapNotNull { provider ->
-        val allowed = provider.models.filterNot { isIagentReviewModel(it.modelId, it.displayName) }.map { model ->
-            if (model.providerOverwrite == null) model else model.copy(providerOverwrite = null)
-        }
-        if (allowed.isEmpty()) null else provider.copyProvider(enabled = true, models = allowed)
+    val storedDeepSeek = providers.filterIsInstance<ProviderSetting.OpenAI>().firstOrNull {
+        val baseUrl = it.baseUrl.trimEnd('/')
+        it.id == DEEPSEEK_PROVIDER_ID && (baseUrl == DEEPSEEK_ORIGIN || baseUrl == DEEPSEEK_PROVIDER.baseUrl)
     }
+    val deepSeek = storedDeepSeek?.let {
+        DEEPSEEK_PROVIDER.copy(
+            apiKey = it.apiKey,
+            enabled = it.enabled,
+            models = it.models.allowedChatModels(),
+            includeHistoryReasoning = it.includeHistoryReasoning,
+            quotaQuery = it.quotaQuery,
+            customHeaders = it.customHeaders,
+        )
+    } ?: DEEPSEEK_PROVIDER.copy()
+    val chatProviders = providers.filter { it.isIagentManaged() }.mapNotNull { provider ->
+        val models = provider.models.allowedChatModels()
+        if (models.isEmpty()) null else provider.copyProvider(enabled = true, models = models)
+    } + deepSeek
     val mediaProviders = mediaGenerationProviders.filterIsInstance<MediaGenerationProviderSetting.Iagent>()
         .mapNotNull { provider ->
             val allowed = provider.models.filterNot { isIagentReviewModel(it.modelId, it.displayName.orEmpty()) }
             if (allowed.isEmpty()) null else provider.copy(models = allowed)
         }
     return copy(
-        providers = providers,
+        providers = chatProviders,
         mediaGenerationProviders = mediaProviders,
-        chatModelId = chatModelId.takeIf { providers.findModelById(it) != null }
-            ?: providers.firstOrNull()?.models?.firstOrNull()?.id
+        chatModelId = chatModelId.takeIf { chatProviders.findModelById(it) != null }
+            ?: chatProviders.firstNotNullOfOrNull { it.models.firstOrNull()?.id }
             ?: chatModelId,
     )
 }
+
+private fun List<Model>.allowedChatModels() =
+    filterNot { isIagentReviewModel(it.modelId, it.displayName) }
+        .map { if (it.providerOverwrite == null) it else it.copy(providerOverwrite = null) }
 
 // 内置助手和设备 TTS 仍由客户端提供。
 internal fun Settings.withBuiltInDefaults(): Settings {

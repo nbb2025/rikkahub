@@ -5,7 +5,10 @@ import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
+import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.ProviderSetting
 import me.rerere.rikkahub.AppScope
+import me.rerere.rikkahub.data.datastore.DEEPSEEK_PROVIDER
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.iagent.IagentAccount
 import me.rerere.rikkahub.data.iagent.IagentKeyRef
@@ -45,10 +48,14 @@ class IagentWorkspaceLifecycleTest {
         val previous = store.awaitLoaded()
         val account = IagentAccount(context, koin.get<AppScope>(), server.http)
         val models = IagentModels(account, store)
+        val directModel = Model(modelId = "deepseek-chat")
+        val deepSeek = DEEPSEEK_PROVIDER.copy(apiKey = "fixture-deepseek-key", models = listOf(directModel))
         try {
+            store.update { it.copy(providers = listOf(deepSeek), chatModelId = directModel.id) }
             account.login("preview@iagent.example", "preview-only")
             models.synchronize(owner, force = true)
-            assertEquals(listOf("Chat"), store.settingsFlow.value.providers.map { it.name })
+            assertEquals(listOf("Chat", "DeepSeek"), store.settingsFlow.value.providers.map { it.name })
+            assertEquals(directModel.id, store.settingsFlow.value.chatModelId)
             val mediaId = store.settingsFlow.value.mediaGenerationProviders.single().id
             assertTrue(server.creates.isEmpty())
 
@@ -78,6 +85,11 @@ class IagentWorkspaceLifecycleTest {
             server.active.remove(media.group)
             server.catalogUnavailable = true
             assertTrue(runCatching { models.synchronize(owner, force = true) }.exceptionOrNull() is IOException)
+            val storedDeepSeek = store.settingsFlow.value.providers.single {
+                it.id == deepSeek.id
+            } as ProviderSetting.OpenAI
+            assertEquals(deepSeek.apiKey, storedDeepSeek.apiKey)
+            assertEquals(directModel.id, store.settingsFlow.value.chatModelId)
             assertTrue(store.settingsFlow.value.mediaGenerationProviders.isEmpty())
             assertEquals(mediaId, store.settingsFlow.value.retiredIagentMediaProviders.single { it.id == mediaId }.id)
             assertTrue(runCatching { account.key(media, forSubmission = true) }.exceptionOrNull() is IOException)

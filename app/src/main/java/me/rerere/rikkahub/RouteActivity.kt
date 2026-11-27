@@ -67,6 +67,7 @@ import me.rerere.ui.toast.Toaster
 import me.rerere.ui.toast.rememberToasterState
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
+import me.rerere.rikkahub.data.datastore.DEEPSEEK_PROVIDER_ID
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.iagent.IagentAccount
 import me.rerere.rikkahub.data.iagent.IagentModels
@@ -141,6 +142,8 @@ import me.rerere.rikkahub.ui.pages.setting.SettingMcpDetailPage
 import me.rerere.rikkahub.ui.pages.setting.SettingMcpPage
 import me.rerere.rikkahub.ui.pages.setting.SettingModelPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPage
+import me.rerere.rikkahub.ui.pages.setting.SettingProviderDetailPage
+import me.rerere.rikkahub.ui.pages.setting.SettingProviderPage
 import me.rerere.rikkahub.ui.pages.setting.SettingSearchDetailPage
 import me.rerere.rikkahub.ui.pages.setting.SettingSearchPage
 import me.rerere.rikkahub.ui.pages.setting.SettingSpeechPage
@@ -635,12 +638,20 @@ class RouteActivity : ComponentActivity() {
                                 SettingPreferencesNetworkPage()
                             }
 
-                            entry<Screen.SettingProvider> {
+                            entry<Screen.IagentCatalog> {
                                 IagentCatalogPage()
                             }
 
-                            entry<Screen.SettingProviderDetail> {
-                                IagentCatalogPage()
+                            entry<Screen.SettingProvider> {
+                                SettingProviderPage()
+                            }
+
+                            entry<Screen.SettingProviderDetail> { key ->
+                                if (key.providerId == DEEPSEEK_PROVIDER_ID.toString()) {
+                                    SettingProviderDetailPage(id = DEEPSEEK_PROVIDER_ID)
+                                } else {
+                                    IagentCatalogPage()
+                                }
                             }
 
                             entry<Screen.SettingModels> {
@@ -905,6 +916,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object SettingProvider : Screen
+
+    @Serializable
+    data object IagentCatalog : Screen
 
     @Serializable
     data class SettingProviderDetail(val providerId: String) : Screen

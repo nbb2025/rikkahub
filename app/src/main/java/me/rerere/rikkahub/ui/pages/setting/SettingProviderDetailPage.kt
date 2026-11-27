@@ -109,6 +109,7 @@ import me.rerere.hugeicons.stroke.Share01
 import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.Tools
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.datastore.DEEPSEEK_PROVIDER_ID
 import me.rerere.rikkahub.data.ai.account.preserveCredential
 import me.rerere.rikkahub.ui.components.ai.ExtensionEmptyState
 import me.rerere.rikkahub.ui.components.ai.ModelAbilityTag
@@ -694,7 +695,7 @@ private fun ModelSettingsForm(
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         // 覆盖配置是提供商的独立副本，账号凭据不能复制出去，账号型提供商不支持覆盖
-                        if (parentProvider !is ProviderSetting.Account) {
+                        if (parentProvider !is ProviderSetting.Account && parentProvider?.id != DEEPSEEK_PROVIDER_ID) {
                             ProviderOverrideSettings(
                                 providerOverride = model.providerOverwrite,
                                 onUpdateProviderOverride = { providerOverride ->

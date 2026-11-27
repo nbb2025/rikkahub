@@ -2,6 +2,8 @@ package me.rerere.rikkahub.data.iagent
 
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.rikkahub.data.datastore.DEEPSEEK_PROVIDER
+import me.rerere.rikkahub.data.datastore.DEEPSEEK_PROVIDER_ID
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.normalizedForIagent
 import org.junit.Assert.assertEquals
@@ -9,14 +11,18 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.math.BigDecimal
+import kotlin.uuid.Uuid
 
 class IagentLaunchPolicyTest {
     @Test
-    fun keepsOnlyManagedChatAndRemovesReviewModelsFromStoredSettings() {
+    fun keepsIagentAndDeepSeekAndRemovesReviewModelsFromStoredSettings() {
         val review = Model(modelId = "codex-auto-review", displayName = "Codex Auto Review")
         val chat = Model(modelId = "gpt-6.1-sol", providerOverwrite = ProviderSetting.OpenAI(name = "Other"))
+        val deepSeekModel = Model(modelId = "deepseek-chat", providerOverwrite = ProviderSetting.OpenAI(name = "Other"))
+        val deepSeek = DEEPSEEK_PROVIDER.copy(apiKey = "fixture-deepseek-key", models = listOf(deepSeekModel, review))
         val managed = ProviderSetting.OpenAI(
             name = "iAgent",
+            baseUrl = "$IAGENT_ORIGIN/v1",
             apiKey = IagentKeyRef(1, 2, false).encode(),
             enabled = false,
             models = listOf(review, chat),
@@ -24,19 +30,36 @@ class IagentLaunchPolicyTest {
         val settings = Settings(
             providers = listOf(
                 managed,
-                ProviderSetting.OpenAI(name = "Other", models = listOf(Model(modelId = "other")))
+                deepSeek,
+                ProviderSetting.OpenAI(name = "Other", models = listOf(Model(modelId = "other"))),
+                managed.copy(id = Uuid.random(), baseUrl = "https://other.example/v1"),
             ),
             chatModelId = review.id,
             favoriteModels = listOf(review.id),
         ).normalizedForIagent()
-        assertEquals(listOf(managed.id), settings.providers.map { it.id })
-        assertTrue(settings.providers.single().enabled)
-        assertEquals(listOf(chat.id), settings.providers.single().models.map { it.id })
-        assertNull(settings.providers.single().models.single().providerOverwrite)
+        assertEquals(listOf(managed.id, DEEPSEEK_PROVIDER_ID), settings.providers.map { it.id })
+        val (storedIagent, storedDeepSeek) = settings.providers
+        assertTrue(storedIagent.enabled)
+        assertEquals(listOf(chat.id), storedIagent.models.map { it.id })
+        assertNull(storedIagent.models.single().providerOverwrite)
+        assertEquals(deepSeek.apiKey, (storedDeepSeek as ProviderSetting.OpenAI).apiKey)
+        assertEquals(listOf(deepSeekModel.copy(providerOverwrite = null)), storedDeepSeek.models)
         assertEquals(chat.id, settings.chatModelId)
         assertTrue(settings.favoriteModels.isEmpty())
         assertTrue(isIagentReviewModel("alias", "Codex Auto Review"))
         assertTrue(!isIagentReviewModel("gemini-3-pro-image-preview", "Gemini Image Preview"))
+    }
+
+    @Test
+    fun restoresBuiltInDeepSeekWithoutReusingCredentialsForAnAlternateEndpoint() {
+        val custom = DEEPSEEK_PROVIDER.copy(baseUrl = "https://other.example", apiKey = "fixture-other-key")
+        val settings = Settings(providers = listOf(custom)).normalizedForIagent()
+        val provider = settings.providers.single() as ProviderSetting.OpenAI
+        assertEquals(DEEPSEEK_PROVIDER_ID, provider.id)
+        assertEquals(DEEPSEEK_PROVIDER.baseUrl, provider.baseUrl)
+        assertEquals("", provider.apiKey)
+        assertTrue(provider.builtIn)
+        assertEquals(settings, settings.normalizedForIagent())
     }
 
     @Test

@@ -212,6 +212,12 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                     item(
                         onClick = { navController.navigate(Screen.SettingProvider) },
                         leadingContent = { CardGroupIcon(HugeIcons.Brain02, containerColor = containerColor, contentColor = contentColor) },
+                        supportingContent = { Text(stringResource(R.string.setting_page_providers_desc)) },
+                        headlineContent = { Text(stringResource(R.string.setting_page_providers)) },
+                    )
+                    item(
+                        onClick = { navController.navigate(Screen.IagentCatalog) },
+                        leadingContent = { CardGroupIcon(HugeIcons.Brain02, containerColor = containerColor, contentColor = contentColor) },
                         supportingContent = { Text(stringResource(R.string.iagent_catalog_hint)) },
                         headlineContent = { Text(stringResource(R.string.iagent_catalog_title)) },
                     )

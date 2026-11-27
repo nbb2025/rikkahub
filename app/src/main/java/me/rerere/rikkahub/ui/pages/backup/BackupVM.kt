@@ -20,7 +20,6 @@ import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.sync.S3BackupItem
 import me.rerere.rikkahub.data.sync.S3Sync
 import me.rerere.rikkahub.data.sync.importer.ChatboxImporter
-import me.rerere.rikkahub.data.sync.importer.CherryStudioProviderImporter
 import me.rerere.rikkahub.data.sync.importer.DeepSeekImportResult
 import me.rerere.rikkahub.data.sync.importer.DeepSeekMigrator
 import me.rerere.rikkahub.data.sync.webdav.WebDavBackupItem
@@ -142,9 +141,6 @@ class BackupVM(
         val targetAssistantId = currentSettings.assistantId
         settingsStore.update { latestSettings ->
             latestSettings.copy(
-                providers = result.providers + latestSettings.providers.filterNot { existing ->
-                    result.providers.any { imported -> imported.id == existing.id }
-                },
                 assistants = latestSettings.assistants.map { assistant ->
                     if (result.hasConversationSystemPrompt && assistant.id == targetAssistantId) {
                         assistant.copy(allowConversationSystemPrompt = true)
@@ -157,13 +153,11 @@ class BackupVM(
 
         Log.i(
             TAG,
-            "restoreFromChatBox: import ${result.providers.size} providers, " +
-                "$importedConversations conversations, skip $skippedExistingConversations existing, " +
+            "restoreFromChatBox: import $importedConversations conversations, skip $skippedExistingConversations existing, " +
                 "import ${result.importedImageParts} images, drop ${result.skippedImageParts} images, " +
                 "skip ${result.skippedForkMessages} fork messages and ${result.skippedSessions} sessions"
         )
         ChatboxRestoreResult(
-            importedProviders = result.providers.size,
             importedConversations = importedConversations,
             skippedExistingConversations = skippedExistingConversations,
             importedImageParts = result.importedImageParts,
@@ -175,22 +169,6 @@ class BackupVM(
     }
 
     suspend fun restoreFromDeepSeek(uri: Uri): DeepSeekImportResult = deepSeekMigrator.import(uri)
-
-    fun restoreFromCherryStudio(file: File) {
-        val importProviders = CherryStudioProviderImporter.importProviders(file)
-
-        if (importProviders.isEmpty()) {
-            throw IllegalArgumentException("No importable providers found in Cherry Studio backup")
-        }
-
-        Log.i(TAG, "restoreFromCherryStudio: import ${importProviders.size} providers: $importProviders")
-
-        updateSettings {
-            it.copy(
-                providers = importProviders + it.providers,
-            )
-        }
-    }
 
     // S3 Backup methods
     fun loadS3BackupFileItems() {
@@ -239,7 +217,6 @@ class BackupVM(
 }
 
 data class ChatboxRestoreResult(
-    val importedProviders: Int,
     val importedConversations: Int,
     val skippedExistingConversations: Int,
     val importedImageParts: Int,

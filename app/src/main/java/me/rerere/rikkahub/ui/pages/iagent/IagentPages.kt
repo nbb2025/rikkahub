@@ -15,6 +15,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.hugeicons.stroke.Refresh
 import me.rerere.hugeicons.stroke.Settings03
+import me.rerere.hugeicons.stroke.Brain02
 import me.rerere.hugeicons.stroke.Sparkles
 import me.rerere.rikkahub.Screen
 import androidx.compose.foundation.layout.Arrangement
@@ -297,6 +298,12 @@ internal fun IagentAccountPage(onSignIn: () -> Unit, onRecharge: () -> Unit) {
                     title = stringResource(R.string.iagent_catalog_title),
                     detail = stringResource(R.string.iagent_catalog_hint),
                     icon = HugeIcons.Sparkles,
+                    onClick = { nav.navigate(Screen.IagentCatalog) },
+                )
+                AccountAction(
+                    title = stringResource(R.string.setting_page_providers),
+                    detail = stringResource(R.string.setting_page_providers_desc),
+                    icon = HugeIcons.Brain02,
                     onClick = { nav.navigate(Screen.SettingProvider) },
                 )
                 if (owner != null) {

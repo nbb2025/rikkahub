@@ -42,6 +42,7 @@ import me.rerere.rikkahub.data.ai.account.ChatGPTAuth
 import me.rerere.oauth.CustomTabsOAuthAuthorizationLauncher
 import me.rerere.rikkahub.data.ai.account.ProviderAccountManager
 import me.rerere.rikkahub.data.datastore.DEFAULT_PROVIDERS
+import me.rerere.rikkahub.data.datastore.DEEPSEEK_PROVIDER_ID
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.hugeicons.stroke.Cancel01
@@ -309,16 +310,18 @@ private fun ProviderConfigureOpenAI(
     provider: ProviderSetting.OpenAI,
     onEdit: (provider: ProviderSetting) -> Unit
 ) {
+    val isDeepSeek = provider.id == DEEPSEEK_PROVIDER_ID
     val toaster = LocalToaster.current
     val responseAPIWarning = stringResource(R.string.setting_provider_page_response_api_warning)
 
     CardGroup {
-        nameItem(provider, onEdit)
+        if (!isDeepSeek) nameItem(provider, onEdit)
         apiKeyItem(provider.apiKey) { onEdit(provider.copy(apiKey = it)) }
         textFieldItem(
             label = R.string.setting_provider_page_api_base_url,
             value = provider.baseUrl,
             onValueChange = { onEdit(provider.copy(baseUrl = it.trim())) },
+            enabled = !isDeepSeek,
             isError = provider.baseUrl.isNotBlank() && !provider.baseUrl.isValidBaseUrl(),
             trailingIcon = resetBaseUrlButton(provider) {
                 onEdit(provider.copy(baseUrl = provider.defaultBaseUrlForReset()))
@@ -341,16 +344,18 @@ private fun ProviderConfigureOpenAI(
     }
 
     CardGroup {
-        switchItem(
-            checked = provider.useResponseApi,
-            onCheckedChange = {
-                onEdit(provider.copy(useResponseApi = it))
-                if (it && provider.baseUrl.toHttpUrlOrNull()?.host != "api.openai.com") {
-                    toaster.show(message = responseAPIWarning, type = ToastType.Warning)
-                }
-            },
-            headlineContent = { Text(stringResource(R.string.setting_provider_page_response_api)) },
-        )
+        if (!isDeepSeek) {
+            switchItem(
+                checked = provider.useResponseApi,
+                onCheckedChange = {
+                    onEdit(provider.copy(useResponseApi = it))
+                    if (it && provider.baseUrl.toHttpUrlOrNull()?.host != "api.openai.com") {
+                        toaster.show(message = responseAPIWarning, type = ToastType.Warning)
+                    }
+                },
+                headlineContent = { Text(stringResource(R.string.setting_provider_page_response_api)) },
+            )
+        }
         switchItem(
             checked = provider.includeHistoryReasoning,
             onCheckedChange = { onEdit(provider.copy(includeHistoryReasoning = it)) },

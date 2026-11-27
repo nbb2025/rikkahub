@@ -102,7 +102,7 @@ internal fun IagentGuestPage(studio: Boolean, onSignIn: (String) -> Unit) {
                     Button(onClick = { onSignIn("") }) {
                         Text(stringResource(if (studio) R.string.iagent_guest_create else R.string.iagent_guest_chat))
                     }
-                    TextButton(onClick = { nav.navigate(Screen.SettingProvider) }) {
+                    TextButton(onClick = { nav.navigate(Screen.IagentCatalog) }) {
                         Text(stringResource(R.string.iagent_catalog_title))
                     }
                 }

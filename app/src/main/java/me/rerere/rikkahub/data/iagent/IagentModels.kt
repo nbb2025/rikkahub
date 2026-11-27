@@ -15,6 +15,7 @@ import me.rerere.ai.provider.ProviderSetting
 import me.rerere.mediagen.model.MediaGenerationModel
 import me.rerere.mediagen.provider.IagentMediaProtocol
 import me.rerere.mediagen.provider.MediaGenerationProviderSetting
+import me.rerere.rikkahub.data.datastore.DEEPSEEK_PROVIDER_ID
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import okhttp3.Interceptor
@@ -69,7 +70,9 @@ class IagentModels(
                 val media = old.mediaGenerationProviders.filterIsInstance<MediaGenerationProviderSetting.Iagent>()
                     .filter { IagentKeyRef.parse(it.keyReference)?.group in allowedIds }
                 old.copy(
-                    providers = old.providers.filter { it.iagentRef()?.group in allowedIds },
+                    providers = old.providers.filter {
+                        it.id == DEEPSEEK_PROVIDER_ID || it.iagentRef()?.group in allowedIds
+                    },
                     mediaGenerationProviders = media,
                     retiredIagentMediaProviders = old.retireIagentMediaProviders(media),
                 )
@@ -151,11 +154,12 @@ class IagentModels(
         check(account.user.value?.id == owner)
         settings.update { old ->
             if (account.user.value?.id != owner) return@update old
-            val modelIds = chats.flatMap { it.models }.map { it.id }.toSet()
-            val firstModel = chats.flatMap { it.models }.firstOrNull()?.id
+            val providers = chats + old.providers.filter { it.id == DEEPSEEK_PROVIDER_ID }
+            val modelIds = providers.flatMap { it.models }.map { it.id }.toSet()
+            val firstModel = providers.firstNotNullOfOrNull { it.models.firstOrNull()?.id }
             val initial = old.providers.none { it.isIagentManaged() }
             old.copy(
-                providers = chats,
+                providers = providers,
                 mediaGenerationProviders = media,
                 retiredIagentMediaProviders = old.retireIagentMediaProviders(media),
                 chatModelId = old.chatModelId.takeIf { it in modelIds } ?: firstModel ?: old.chatModelId,
@@ -179,9 +183,10 @@ private fun Settings.retireIagentMediaProviders(
         .filterNot { it.id in active }.distinctBy { it.id }.map { it.copy(models = emptyList()) }
 }
 
-private fun ProviderSetting.iagentRef(): IagentKeyRef? = (this as? ProviderSetting.ApiKey)?.apiKey?.let(
-    IagentKeyRef::parse
-)
+private fun ProviderSetting.iagentRef(): IagentKeyRef? = (this as? ProviderSetting.ApiKey)
+    ?.takeIf { it.baseUrl.trimEnd('/') == "$IAGENT_ORIGIN/v1" }
+    ?.apiKey
+    ?.let(IagentKeyRef::parse)
 
 internal fun ProviderSetting.isIagentManaged(): Boolean = iagentRef() != null
 
